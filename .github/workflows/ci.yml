@@ -70,6 +70,14 @@ jobs:
             ci
             perf
 
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v4
+
   contracts:
     name: Soroban Contract Tests
     runs-on: ubuntu-latest
