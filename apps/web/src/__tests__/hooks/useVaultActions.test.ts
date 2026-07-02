@@ -5,8 +5,9 @@ import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
 
 const invalidateQueries = vi.fn();
+const setQueryData = vi.fn();
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ invalidateQueries }),
+  useQueryClient: () => ({ invalidateQueries, setQueryData }),
 }));
 
 vi.mock("../../lib/wallet", () => ({
@@ -55,6 +56,7 @@ beforeEach(() => {
   });
   useToastStore.setState({ toasts: [] });
   invalidateQueries.mockClear();
+  setQueryData.mockClear();
   vi.clearAllMocks();
   // Stub fetch so hasBlendUsdcBalance returns true (balance > 0), skipping the
   // testnet faucet path. Tests that need the faucet path override this per-test.
