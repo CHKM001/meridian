@@ -150,33 +150,59 @@ export function useVaultActions() {
     if (!publicKey || !passphrase) return false;
     setIsWithdrawing(true);
     try {
+      // Snapshot the current positions before any async work so the optimistic
+      // update and poll have a consistent baseline.
+      const positionsBefore = queryClient.getQueryData<ApiPosition[]>([
+        "positions",
+        publicKey,
+      ]);
+      const matchedBefore =
+        positionsBefore?.find((p) => p.vaultId === vaultId) ??
+        positionsBefore?.[0];
+      const sharesBefore = matchedBefore?.shares ?? Infinity;
+      const withdrawnShares = parseFloat(shares);
+
       const { xdr } = await api.buildWithdraw({
         walletAddress: publicKey,
         vaultId,
         shares,
       });
-      // Snapshot shares before the withdrawal so the poll knows when the RPC
-      // has caught up (live shares will be less than this once propagated).
-      const positionsBefore = queryClient.getQueryData<ApiPosition[]>([
-        "positions",
-        publicKey,
-      ]);
-      const sharesBefore = positionsBefore?.[0]?.shares ?? Infinity;
 
       await signAndSubmit(xdr);
 
-      // Optimistically clear so the UI doesn't flash the pre-withdrawal balance.
-      queryClient.setQueryData(["positions", publicKey], []);
+      // Optimistic update: partial withdrawal scales the position down in-place
+      // so the position card stays visible with an approximate remaining balance.
+      // Full withdrawal (or no prior data) clears the cache entirely.
+      if (matchedBefore && withdrawnShares < sharesBefore) {
+        const remainingRatio = (sharesBefore - withdrawnShares) / sharesBefore;
+        queryClient.setQueryData(
+          ["positions", publicKey],
+          (positionsBefore ?? []).map((p) =>
+            p === matchedBefore
+              ? {
+                  ...p,
+                  shares: sharesBefore - withdrawnShares,
+                  deposited: p.deposited * remainingRatio,
+                }
+              : p
+          )
+        );
+      } else {
+        queryClient.setQueryData(["positions", publicKey], []);
+      }
 
-      // Poll every 3 s until the RPC reflects the new ledger state, then update
-      // the cache with the real data. Give up after 30 s.
+      // Poll every 3 s until the RPC reflects the new ledger state, then write
+      // the real data into the cache. Give up after 30 s.
       const key = publicKey;
       const startedAt = Date.now();
       const syncWhenReady = async (): Promise<void> => {
         if (Date.now() - startedAt > 30_000) return;
         try {
           const data = await api.getPositions(key);
-          if ((data.positions[0]?.shares ?? 0) < sharesBefore) {
+          const live =
+            data.positions.find((p) => p.vaultId === vaultId) ??
+            data.positions[0];
+          if ((live?.shares ?? 0) < sharesBefore) {
             queryClient.setQueryData(["positions", key], data.positions);
             return;
           }
