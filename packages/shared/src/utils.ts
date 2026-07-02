@@ -15,6 +15,7 @@ export function sanitizeTxError(err: unknown, fallback: string): string {
 }
 
 export function shortenAddress(address: string, chars = 4): string {
+  if (address.length <= chars * 2) return address;
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
 
@@ -95,11 +96,6 @@ export function fromStroops(stroops: bigint): string {
   const decimal = remainder.toString().padStart(7, "0").replace(/0+$/, "");
   return `${sign}${whole}.${decimal}`;
 }
-
-/**
- * Formats a number as a USD currency string.
- * e.g. 1234.5 -> "$1,234.50"
- */
 const USD_FORMATTER = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -107,6 +103,10 @@ const USD_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+/**
+ * Formats a number as a USD currency string.
+ * e.g. 1234.5 -> "$1,234.50"
+ */
 export function formatUsdAmount(amount: number): string {
   if (!Number.isFinite(amount))
     throw new RangeError(`formatUsdAmount: invalid amount: ${amount}`);
@@ -115,8 +115,8 @@ export function formatUsdAmount(amount: number): string {
 
 /**
  * Parses a USD-formatted string back to a number.
- * Reverse of formatUsdAmount.
- * e.g. "$1,234.50" -> 1234.5
+ * Returns null for invalid or malformed input.
+
  */
 export function parseUsdAmount(value: string): number | null {
   const stripped = value.replace(/[^0-9.,-]/g, "").replace(/,/g, "");
