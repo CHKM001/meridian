@@ -66,8 +66,13 @@ export function VaultPanel() {
   // Route to the server's recommendation: the highest-APY vault Meridian can
   // actually deposit into (excludes display-only protocols and risky pools).
   const bestVault = vaults?.find((v) => v.id === data?.recommendedVaultId);
-  // Single-vault architecture: the user holds at most one position. Revisit if multi-vault is added.
-  const position = positions[0];
+  // Prefer the position that matches the recommended vault so deposits and
+  // withdrawals target the same protocol. Fall back to positions[0] when no
+  // match exists (e.g. funds are in a legacy vault that is no longer recommended)
+  // so the balance remains visible and withdrawable.
+  const position = bestVault
+    ? (positions.find((p) => p.vaultId === bestVault.id) ?? positions[0])
+    : positions[0];
   const hasPosition =
     position && Number.isFinite(position.deposited) && position.deposited > 0;
 
@@ -78,8 +83,9 @@ export function VaultPanel() {
   }
 
   async function handleWithdraw() {
-    if (!amount || !bestVault) return;
-    const ok = await withdraw(amount, bestVault.id, bestVault.asset);
+    if (!amount || !bestVault || !position) return;
+    if (parseFloat(amount) > position.shares) return;
+    const ok = await withdraw(amount, position.vaultId, bestVault.asset);
     if (ok) setAmount("");
   }
 
@@ -332,7 +338,12 @@ export function VaultPanel() {
                 </div>
                 <button
                   onClick={handleWithdraw}
-                  disabled={!amount || !bestVault || isWithdrawing}
+                  disabled={
+                    !amount ||
+                    !bestVault ||
+                    isWithdrawing ||
+                    parseFloat(amount) > (position?.shares ?? 0)
+                  }
                   className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-800 disabled:text-gray-600 text-white text-sm font-semibold py-3.5 transition-all duration-150 disabled:cursor-not-allowed"
                 >
                   {isWithdrawing
