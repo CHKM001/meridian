@@ -156,7 +156,14 @@ export function useVaultActions() {
         shares,
       });
       await signAndSubmit(xdr);
-      queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
+      // Optimistically clear the position so the UI doesn't reflect the
+      // pre-withdrawal balance while the Soroban RPC catches up (~1 ledger).
+      queryClient.setQueryData(["positions", publicKey], []);
+      setTimeout(() => {
+        void queryClient.invalidateQueries({
+          queryKey: ["positions", publicKey],
+        });
+      }, 5_000);
       push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
       return true;
     } catch (err) {
