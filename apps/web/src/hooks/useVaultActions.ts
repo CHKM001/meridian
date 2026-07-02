@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { STELLAR_NETWORKS, APP_NETWORK, USDC_ISSUER } from "@meridian/shared";
 import { useWalletStore } from "../store/wallet";
 import { signTransaction } from "../lib/wallet";
-import { api } from "../lib/api";
+import { api, type ApiPosition } from "../lib/api";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
 
@@ -155,16 +155,37 @@ export function useVaultActions() {
         vaultId,
         shares,
       });
+      // Snapshot shares before the withdrawal so the poll knows when the RPC
+      // has caught up (live shares will be less than this once propagated).
+      const positionsBefore = queryClient.getQueryData<ApiPosition[]>([
+        "positions",
+        publicKey,
+      ]);
+      const sharesBefore = positionsBefore?.[0]?.shares ?? Infinity;
+
       await signAndSubmit(xdr);
-      // Optimistically clear the position so the UI doesn't reflect the
-      // pre-withdrawal balance while the Soroban RPC catches up. Mainnet closes
-      // a ledger every ~5 s; 12 s gives 2+ closes of propagation headroom.
+
+      // Optimistically clear so the UI doesn't flash the pre-withdrawal balance.
       queryClient.setQueryData(["positions", publicKey], []);
-      setTimeout(() => {
-        void queryClient.invalidateQueries({
-          queryKey: ["positions", publicKey],
-        });
-      }, 12_000);
+
+      // Poll every 3 s until the RPC reflects the new ledger state, then update
+      // the cache with the real data. Give up after 30 s.
+      const key = publicKey;
+      const startedAt = Date.now();
+      const syncWhenReady = async (): Promise<void> => {
+        if (Date.now() - startedAt > 30_000) return;
+        try {
+          const data = await api.getPositions(key);
+          if ((data.positions[0]?.shares ?? 0) < sharesBefore) {
+            queryClient.setQueryData(["positions", key], data.positions);
+            return;
+          }
+        } catch {
+          // network error — retry next tick
+        }
+        setTimeout(() => void syncWhenReady(), 3_000);
+      };
+      setTimeout(() => void syncWhenReady(), 3_000);
       push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
       return true;
     } catch (err) {
