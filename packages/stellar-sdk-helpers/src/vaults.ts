@@ -9,7 +9,7 @@ import { APP_NETWORK, withRaceTimeout } from "@meridian/shared";
 
 export interface ApiVault {
   id: string;
-  protocol: "blend" | "defindex";
+  protocol: "blend" | "defindex" | "meridian";
   asset: string;
   name: string;
   label: string;
