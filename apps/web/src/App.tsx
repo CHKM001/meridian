@@ -43,9 +43,15 @@ function Dashboard() {
 }
 
 export default function App() {
-  // Evict a stale persisted wallet if Freighter is no longer available.
   useEffect(() => {
-    void useWalletStore.getState().revalidate();
+    const revalidate = () => void useWalletStore.getState().revalidate();
+    revalidate();
+    // Re-check authorization when the window regains focus. Freighter opens
+    // as an extension popup (separate window), so the page loses focus while
+    // the popup is open and regains it when it closes — this catches revoked
+    // site access without requiring a page reload.
+    window.addEventListener("focus", revalidate);
+    return () => window.removeEventListener("focus", revalidate);
   }, []);
 
   return (

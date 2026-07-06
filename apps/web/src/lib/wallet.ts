@@ -1,5 +1,6 @@
 import {
   isConnected,
+  isAllowed,
   requestAccess,
   signTransaction as freighterSign,
 } from "@stellar/freighter-api";
@@ -7,6 +8,15 @@ import {
 export async function isFreighterInstalled(): Promise<boolean> {
   const result = await isConnected();
   return result.isConnected;
+}
+
+// Checks whether the user has granted this site access in Freighter.
+// Returns false if the extension is absent or the site permission was revoked.
+export async function isFreighterAuthorized(): Promise<boolean> {
+  const installed = await isFreighterInstalled();
+  if (!installed) return false;
+  const result = await isAllowed();
+  return result.isAllowed;
 }
 
 export async function connectFreighter(): Promise<string> {
