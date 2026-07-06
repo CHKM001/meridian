@@ -48,7 +48,7 @@ async function hasBlendUsdcBalance(
 
 export function useVaultActions() {
   const { t } = useTranslation();
-  const { publicKey, network } = useWalletStore();
+  const { publicKey, network, revalidate } = useWalletStore();
   const queryClient = useQueryClient();
   const { push } = useToastStore();
   const [isDepositing, setIsDepositing] = useState(false);
@@ -59,6 +59,10 @@ export function useVaultActions() {
     STELLAR_NETWORKS[network as keyof typeof STELLAR_NETWORKS]?.passphrase;
 
   async function signAndSubmit(xdr: string) {
+    await revalidate();
+    if (!useWalletStore.getState().connected) {
+      throw new Error(t("walletConnect.walletDisconnected"));
+    }
     const signedXdr = await signTransaction(xdr, passphrase);
     await api.submitTx({ xdr: signedXdr });
   }

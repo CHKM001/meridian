@@ -13,6 +13,7 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("../../lib/wallet", () => ({
   signTransaction: vi.fn(async () => "SIGNED_XDR"),
+  isFreighterAuthorized: vi.fn(async () => true),
 }));
 
 vi.mock("../../lib/api", () => ({

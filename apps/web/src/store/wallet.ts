@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { WalletState } from "../types";
-import { isFreighterInstalled } from "../lib/wallet";
+import { isFreighterAuthorized } from "../lib/wallet";
 
 interface WalletStore extends WalletState {
   connect: (publicKey: string) => void;
@@ -21,12 +21,12 @@ export const useWalletStore = create<WalletStore>()(
       disconnect: () => set({ publicKey: null, connected: false }),
       setNetwork: (network) => set({ network }),
 
-      // Re-check the persisted key against Freighter. If the extension is gone
-      // or access was revoked between sessions, drop the stale connection.
+      // Re-check the persisted key against Freighter. Clears stale state when
+      // the extension is gone or the user revoked site access between sessions.
       revalidate: async () => {
         if (!get().publicKey) return;
-        const installed = await isFreighterInstalled();
-        if (!installed) set({ publicKey: null, connected: false });
+        const authorized = await isFreighterAuthorized();
+        if (!authorized) set({ publicKey: null, connected: false });
       },
     }),
     {

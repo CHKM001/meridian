@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useWalletStore } from "../../store/wallet";
 
 vi.mock("../../lib/wallet", () => ({
-  isFreighterInstalled: vi.fn(),
+  isFreighterAuthorized: vi.fn(),
 }));
 
-import { isFreighterInstalled } from "../../lib/wallet";
+import { isFreighterAuthorized } from "../../lib/wallet";
 
 const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
@@ -43,12 +43,12 @@ describe("useWalletStore", () => {
 
   it("revalidate does nothing when no publicKey is set", async () => {
     await useWalletStore.getState().revalidate();
-    expect(isFreighterInstalled).not.toHaveBeenCalled();
+    expect(isFreighterAuthorized).not.toHaveBeenCalled();
   });
 
-  it("revalidate keeps connection when Freighter is still installed", async () => {
+  it("revalidate keeps connection when site is still authorized", async () => {
     useWalletStore.setState({ publicKey: KEY, connected: true });
-    vi.mocked(isFreighterInstalled).mockResolvedValue(true);
+    vi.mocked(isFreighterAuthorized).mockResolvedValue(true);
     await useWalletStore.getState().revalidate();
     expect(useWalletStore.getState()).toMatchObject({
       publicKey: KEY,
@@ -56,9 +56,9 @@ describe("useWalletStore", () => {
     });
   });
 
-  it("revalidate disconnects when Freighter extension is gone", async () => {
+  it("revalidate disconnects when site access was revoked", async () => {
     useWalletStore.setState({ publicKey: KEY, connected: true });
-    vi.mocked(isFreighterInstalled).mockResolvedValue(false);
+    vi.mocked(isFreighterAuthorized).mockResolvedValue(false);
     await useWalletStore.getState().revalidate();
     expect(useWalletStore.getState()).toMatchObject({
       publicKey: null,
