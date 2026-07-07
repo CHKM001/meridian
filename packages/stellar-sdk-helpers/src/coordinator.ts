@@ -79,7 +79,13 @@ export async function fetchCoordinatorPosition(
   const callerScVal = Address.fromString(publicKey).toScVal();
 
   const sharesRaw = toBigInt(
-    await simulateView(server, contractId, passphrase, "get_position", callerScVal)
+    await simulateView(
+      server,
+      contractId,
+      passphrase,
+      "get_position",
+      callerScVal
+    )
   );
   if (sharesRaw <= 0n) return [];
 
@@ -87,8 +93,20 @@ export async function fetchCoordinatorPosition(
     await Promise.all([
       simulateView(server, contractId, passphrase, "get_total_assets"),
       simulateView(server, contractId, passphrase, "get_total_shares"),
-      simulateView(server, contractId, passphrase, "get_principal", callerScVal),
-      simulateView(server, contractId, passphrase, "get_entry_time", callerScVal),
+      simulateView(
+        server,
+        contractId,
+        passphrase,
+        "get_principal",
+        callerScVal
+      ),
+      simulateView(
+        server,
+        contractId,
+        passphrase,
+        "get_entry_time",
+        callerScVal
+      ),
     ]);
 
   const totalAssets = toBigInt(totalAssetsRaw);
