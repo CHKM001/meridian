@@ -126,6 +126,7 @@ npm install -g pnpm@9
    | ------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
    | `PORT`              | API          | Port for the Fastify API server. Default `3001`.                                                                 |
    | `ALLOWED_ORIGIN`    | API          | CORS allowed origin. Default `http://localhost:3000`.                                                            |
+   | `STELLAR_NETWORK`   | API, SDK     | Target network: `testnet` or `mainnet`. Default `testnet`.                                                       |
    | `DEFINDEX_VAULT_ID` | API          | DeFindex vault contract address (C-address). Leave empty to disable DeFindex; only Blend positions are returned. |
    | `VITE_API_URL`      | Web          | URL the web app uses to reach the API. Default `http://localhost:3001`.                                          |
 
