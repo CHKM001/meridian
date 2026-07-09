@@ -37,7 +37,8 @@
     "assetsAdded": "Vault assets added to wallet",
     "withdrawalFailed": "Withdrawal failed",
     "withdrew": "Withdrew",
-    "deposited": "Deposited"
+    "deposited": "Deposited",
+    "syncDelayed": "Position sync is delayed. Your withdrawal succeeded, but the displayed balance may be stale."
   },
 
   "common": {
