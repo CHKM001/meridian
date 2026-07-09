@@ -22,6 +22,7 @@ vi.mock("../../lib/api", () => ({
     buildDeposit: vi.fn(async () => ({ xdr: "DEPOSIT_XDR" })),
     buildWithdraw: vi.fn(async () => ({ xdr: "WITHDRAW_XDR" })),
     submitTx: vi.fn(async () => ({ hash: "TX_HASH" })),
+    getPositions: vi.fn(async () => ({ positions: [] })),
   },
 }));
 
@@ -33,6 +34,8 @@ vi.mock("react-i18next", () => {
     "vaultActions.depositFailed": "Deposit failed",
     "vaultActions.withdrawalFailed": "Withdrawal failed",
     "vaultActions.failedAssets": "Failed to add vault assets",
+    "vaultActions.syncDelayed":
+      "Position sync is delayed. Your withdrawal succeeded, but the displayed balance may be stale.",
   };
 
   return {
@@ -181,5 +184,39 @@ describe("useVaultActions — withdraw", () => {
 
     expect(ok).toBe(false);
     expect(useToastStore.getState().toasts[0]).toMatchObject({ kind: "error" });
+  });
+
+  it("logs and surfaces a toast after repeated post-withdraw sync failures", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(api.getPositions).mockRejectedValue(new Error("RPC down"));
+
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.withdraw("5", "blend-usdc-fixed", "USDC");
+    });
+
+    // syncWhenReady polls every 3 s; three consecutive failures triggers the toast.
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+    }
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[syncWhenReady] poll failed:",
+      expect.any(Error)
+    );
+    expect(useToastStore.getState().toasts).toContainEqual(
+      expect.objectContaining({
+        kind: "error",
+        message:
+          "Position sync is delayed. Your withdrawal succeeded, but the displayed balance may be stale.",
+      })
+    );
+
+    warnSpy.mockRestore();
+    vi.useRealTimers();
   });
 });

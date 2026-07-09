@@ -199,10 +199,12 @@ export function useVaultActions() {
       // the real data into the cache. Give up after 30 s.
       const key = publicKey;
       const startedAt = Date.now();
+      let consecutiveFailures = 0;
       const syncWhenReady = async (): Promise<void> => {
         if (Date.now() - startedAt > 30_000) return;
         try {
           const data = await api.getPositions(key);
+          consecutiveFailures = 0;
           const live =
             data.positions.find((p) => p.vaultId === vaultId) ??
             data.positions[0];
@@ -210,8 +212,12 @@ export function useVaultActions() {
             queryClient.setQueryData(["positions", key], data.positions);
             return;
           }
-        } catch {
-          // network error — retry next tick
+        } catch (err) {
+          consecutiveFailures += 1;
+          console.warn("[syncWhenReady] poll failed:", err);
+          if (consecutiveFailures === 3) {
+            push("error", t("vaultActions.syncDelayed"));
+          }
         }
         setTimeout(() => void syncWhenReady(), 3_000);
       };
