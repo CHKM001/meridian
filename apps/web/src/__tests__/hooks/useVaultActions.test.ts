@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import {
+  Account,
+  Asset,
+  Operation,
+  TransactionBuilder,
+} from "@stellar/stellar-sdk";
 import { useVaultActions } from "../../hooks/useVaultActions";
 import { useWalletStore } from "../../store/wallet";
 import { useToastStore } from "../../store/toast";
@@ -51,6 +57,24 @@ const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 // Matches USDC_ISSUER.testnet in @meridian/shared (Blend TestnetV2 issuer).
 const BLEND_TESTNET_USDC_ISSUER =
   "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56";
+const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+
+function zeroBalanceHorizonResponse() {
+  return new Response(JSON.stringify({ balances: [] }), { status: 200 });
+}
+
+function faucetTextResponse(op: ReturnType<typeof Operation.payment>) {
+  const account = new Account(KEY, "0");
+  const xdr = new TransactionBuilder(account, {
+    fee: "100",
+    networkPassphrase: TESTNET_PASSPHRASE,
+  })
+    .addOperation(op)
+    .setTimeout(30)
+    .build()
+    .toXDR();
+  return new Response(xdr, { status: 200 });
+}
 
 beforeEach(() => {
   useWalletStore.setState({
@@ -145,6 +169,65 @@ describe("useVaultActions — deposit", () => {
 
     expect(ok).toBe(false);
     expect(api.buildDeposit).not.toHaveBeenCalled();
+  });
+
+  it("signs a faucet transaction that credits the caller's own address", async () => {
+    const legitimate = faucetTextResponse(
+      Operation.payment({
+        destination: KEY,
+        asset: new Asset("USDC", BLEND_TESTNET_USDC_ISSUER),
+        amount: "1000",
+      })
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(zeroBalanceHorizonResponse())
+        .mockResolvedValueOnce(legitimate)
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.deposit("10", "blend-usdc-fixed", "USDC");
+    });
+
+    expect(ok).toBe(true);
+    // Once to sign the faucet grant, once to sign the deposit itself.
+    expect(signTransaction).toHaveBeenCalledTimes(2);
+    expect(api.buildDeposit).toHaveBeenCalled();
+  });
+
+  it("rejects a faucet transaction that pays out to someone else", async () => {
+    const attacker = "GDQNY3PBOJOKYZSRMK2S7LHHGWZIUISD4QORETLMXEWXBI7KFZZMKTL3";
+    const malicious = faucetTextResponse(
+      Operation.payment({
+        destination: attacker,
+        asset: new Asset("USDC", BLEND_TESTNET_USDC_ISSUER),
+        amount: "1000",
+      })
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(zeroBalanceHorizonResponse())
+        .mockResolvedValueOnce(malicious)
+    );
+    const { result } = renderHook(() => useVaultActions());
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.deposit("10", "blend-usdc-fixed", "USDC");
+    });
+
+    expect(ok).toBe(false);
+    expect(signTransaction).not.toHaveBeenCalled();
+    expect(api.buildDeposit).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts).toContainEqual(
+      expect.objectContaining({ kind: "error" })
+    );
   });
 });
 
