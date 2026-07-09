@@ -38,7 +38,7 @@
     "withdrawalFailed": "Échec du retrait",
     "withdrew": "Retiré",
     "deposited": "Déposé",
-    "syncDelayed": "La synchronisation de la position est retardée. Votre retrait a réussi, mais le solde affiché peut être obsolète."
+    "syncDelayed": "Mise à jour de votre solde en cours..."
   },
 
   "common": {

@@ -38,7 +38,7 @@
     "withdrawalFailed": "Withdrawal failed",
     "withdrew": "Withdrew",
     "deposited": "Deposited",
-    "syncDelayed": "Position sync is delayed. Your withdrawal succeeded, but the displayed balance may be stale."
+    "syncDelayed": "Updating your balance..."
   },
 
   "common": {

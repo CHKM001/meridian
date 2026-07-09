@@ -216,7 +216,7 @@ export function useVaultActions() {
           consecutiveFailures += 1;
           console.warn("[syncWhenReady] poll failed:", err);
           if (consecutiveFailures === 3) {
-            push("error", t("vaultActions.syncDelayed"));
+            push("info", t("vaultActions.syncDelayed"));
           }
         }
         setTimeout(() => void syncWhenReady(), 3_000);
