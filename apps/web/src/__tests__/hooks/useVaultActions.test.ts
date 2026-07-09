@@ -34,8 +34,7 @@ vi.mock("react-i18next", () => {
     "vaultActions.depositFailed": "Deposit failed",
     "vaultActions.withdrawalFailed": "Withdrawal failed",
     "vaultActions.failedAssets": "Failed to add vault assets",
-    "vaultActions.syncDelayed":
-      "Position sync is delayed. Your withdrawal succeeded, but the displayed balance may be stale.",
+    "vaultActions.syncDelayed": "Updating your balance...",
   };
 
   return {
@@ -210,9 +209,8 @@ describe("useVaultActions — withdraw", () => {
     );
     expect(useToastStore.getState().toasts).toContainEqual(
       expect.objectContaining({
-        kind: "error",
-        message:
-          "Position sync is delayed. Your withdrawal succeeded, but the displayed balance may be stale.",
+        kind: "info",
+        message: "Updating your balance...",
       })
     );
 
