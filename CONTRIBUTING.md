@@ -367,6 +367,7 @@ pnpm lint && pnpm typecheck && pnpm test
 pnpm lint          # ESLint across all packages
 pnpm typecheck     # tsc --noEmit across all packages
 pnpm test          # Vitest across all packages
+pnpm coverage      # Vitest with coverage thresholds across all packages
 pnpm format        # Prettier (auto-fix)
 
 # Run tests for a single package
