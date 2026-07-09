@@ -78,7 +78,7 @@ mod tests {
         let user = Address::generate(&env);
 
         let usdc_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        StellarAssetClient::new(&env, &usdc_id).mint(&user, &1_000_0000000_i128);
+        StellarAssetClient::new(&env, &usdc_id).mint(&user, &10_000_000_000_i128);
 
         let musdc_a_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
         let vault_a_id = env.register(MeridianVault, ());
@@ -123,7 +123,7 @@ mod tests {
         let user = Address::generate(&env);
 
         let usdc_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        StellarAssetClient::new(&env, &usdc_id).mint(&user, &1_000_0000000_i128);
+        StellarAssetClient::new(&env, &usdc_id).mint(&user, &10_000_000_000_i128);
 
         let musdc_a_id = env.register_stellar_asset_contract_v2(admin.clone()).address();
         let vault_a_id = env.register(MeridianVault, ());

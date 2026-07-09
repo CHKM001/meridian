@@ -87,9 +87,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/contracts
+      - name: Run clippy
+        working-directory: packages/contracts
+        run: cargo clippy --all-targets -- -D warnings
       - name: Run contract tests
         working-directory: packages/contracts
         run: cargo test

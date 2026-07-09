@@ -329,7 +329,7 @@ mod tests {
         StellarAssetClient::new(&env, &musdc_id).set_admin(&vault_id);
 
         // Fund the user with 1000 USDC (7 decimal places: 1000 * 10^7).
-        StellarAssetClient::new(&env, &usdc_id).mint(&user, &1_000_0000000_i128);
+        StellarAssetClient::new(&env, &usdc_id).mint(&user, &10_000_000_000_i128);
 
         (env, admin, user, usdc_id, musdc_id, vault)
     }
@@ -364,7 +364,7 @@ mod tests {
 
         // User should have their USDC back.
         let user_balance = TokenClient::new(&env, &usdc_id).balance(&user);
-        assert_eq!(user_balance, 1_000_0000000_i128);
+        assert_eq!(user_balance, 10_000_000_000_i128);
     }
 
     #[test]
@@ -443,7 +443,7 @@ mod tests {
         // A second user deposits 100 USDC — should receive fewer shares
         // because the share price has risen.
         let user2 = Address::generate(&env);
-        StellarAssetClient::new(&env, &usdc_id).mint(&user2, &1_000_0000000_i128);
+        StellarAssetClient::new(&env, &usdc_id).mint(&user2, &10_000_000_000_i128);
         let shares2 = vault.deposit(&user2, &amount, &Protocol::Blend);
 
         // 100 shares outstanding, vault has 110 USDC.
