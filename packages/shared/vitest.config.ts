@@ -2,17 +2,15 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: "jsdom",
-    globals: true,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
       exclude: ["dist/**"],
       thresholds: {
-        lines: 70,
-        branches: 45,
-        functions: 75,
-        statements: 70,
+        lines: 90,
+        branches: 95,
+        functions: 85,
+        statements: 90,
       },
     },
   },
