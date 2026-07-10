@@ -4,6 +4,7 @@ import {
   Horizon,
   Account,
   Asset,
+  Contract,
   Operation,
   TransactionBuilder,
   xdr,
@@ -16,6 +17,7 @@ import {
   buildAddTrustlineTx,
   simulateView,
   assertFaucetPayment,
+  assertSubmittable,
 } from "./tx";
 import type { StellarNetwork } from "./types";
 
@@ -326,5 +328,92 @@ describe("assertFaucetPayment", () => {
     expect(() =>
       assertFaucetPayment(xdr, TESTNET.passphrase, "testnet", USER)
     ).toThrow(/disallowed operation type/);
+  });
+});
+
+describe("assertSubmittable", () => {
+  const network: StellarNetwork = {
+    network: "testnet",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+    passphrase: "Test SDF Network ; September 2015",
+  };
+
+  const KNOWN_VAULT =
+    "CBK5RI4BCA7TLSD2S5Q5TH2LUQAT55GF34OBTWPFUKWZ5O6YXSQDAWOJ";
+  // Circle's mainnet USDC SAC: a validly-formed contract ID that is not on the
+  // testnet allowlist.
+  const UNKNOWN_CONTRACT =
+    "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75";
+  const USDC_ISSUER_TESTNET =
+    "GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56";
+  const MUSDC_ISSUER_TESTNET =
+    "GAZOB5KAE27U7QMGCJLA74TKGECONNND73GL2GIMYBXYNBVG4U5IHBX7";
+  // Circle's mainnet USDC issuer: a validly-formed address that is not on the
+  // testnet allowlist.
+  const UNKNOWN_ISSUER =
+    "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+  const SOURCE = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+
+  function buildTx(
+    op: ReturnType<typeof Operation.changeTrust> | ReturnType<Contract["call"]>
+  ) {
+    const account = new Account(SOURCE, "0");
+    return new TransactionBuilder(account, {
+      fee: "100",
+      networkPassphrase: network.passphrase,
+    })
+      .addOperation(op)
+      .setTimeout(30)
+      .build();
+  }
+
+  it("allows a transaction invoking a known Meridian contract", () => {
+    const contract = new Contract(KNOWN_VAULT);
+    const tx = buildTx(contract.call("deposit"));
+    expect(() => assertSubmittable(tx, network)).not.toThrow();
+  });
+
+  it("rejects a transaction invoking an unrecognised contract", () => {
+    const contract = new Contract(UNKNOWN_CONTRACT);
+    const tx = buildTx(contract.call("drain"));
+    expect(() => assertSubmittable(tx, network)).toThrow(
+      /unrecognised contract/
+    );
+  });
+
+  it("allows a changeTrust to the known USDC issuer", () => {
+    const tx = buildTx(
+      Operation.changeTrust({ asset: new Asset("USDC", USDC_ISSUER_TESTNET) })
+    );
+    expect(() => assertSubmittable(tx, network)).not.toThrow();
+  });
+
+  it("allows a changeTrust to the known mUSDC issuer", () => {
+    const tx = buildTx(
+      Operation.changeTrust({
+        asset: new Asset("MUSDC", MUSDC_ISSUER_TESTNET),
+      })
+    );
+    expect(() => assertSubmittable(tx, network)).not.toThrow();
+  });
+
+  it("rejects a changeTrust to an unrecognised issuer", () => {
+    const tx = buildTx(
+      Operation.changeTrust({ asset: new Asset("USDC", UNKNOWN_ISSUER) })
+    );
+    expect(() => assertSubmittable(tx, network)).toThrow(/unrecognised issuer/);
+  });
+
+  it("rejects a disallowed operation type", () => {
+    const tx = buildTx(
+      Operation.payment({
+        destination: SOURCE,
+        asset: Asset.native(),
+        amount: "1",
+      })
+    );
+    expect(() => assertSubmittable(tx, network)).toThrow(
+      /disallowed operation type/
+    );
   });
 });

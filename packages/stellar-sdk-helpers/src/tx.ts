@@ -1,8 +1,10 @@
 import {
   Account,
+  Address,
   Contract,
   TransactionBuilder,
   Transaction,
+  FeeBumpTransaction,
   Asset,
   Horizon,
   Operation,
@@ -12,8 +14,14 @@ import {
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
 import { BASE_FEE, passphraseFor, getRpcServer } from "./internal";
-import { withRetry, withRaceTimeout, USDC_ISSUER } from "@meridian/shared";
+import {
+  withRetry,
+  withRaceTimeout,
+  USDC_ISSUER,
+  CONTRACT_ADDRESSES,
+} from "@meridian/shared";
 import { buildHorizonServer } from "./horizon";
+import { KNOWN_POOLS } from "./known-pools";
 
 // The Soroban RPC SDK does not surface an AbortSignal option, so we race each
 // call against a manual timeout rejection. 10 s is enough for testnet under
@@ -277,6 +285,82 @@ function describeSendError(res: rpc.Api.SendTransactionResponse): string {
   }
 }
 
+function allowedContractIds(network: StellarNetwork): Set<string> {
+  const key = network.network === "mainnet" ? "mainnet" : "testnet";
+  const addresses = CONTRACT_ADDRESSES[key];
+  const ids = new Set<string>();
+  const add = (id: string | undefined) => {
+    if (id) ids.add(id);
+  };
+  add(addresses.blend.pool);
+  add(addresses.defindex.factory);
+  add(addresses.defindex.vault);
+  add(addresses.vault);
+  for (const pool of Object.values(KNOWN_POOLS[key])) {
+    add(pool.contractId);
+  }
+  return ids;
+}
+
+function allowedTrustlineIssuers(network: StellarNetwork): Set<string> {
+  const issuers = new Set<string>();
+  const usdc = USDC_ISSUER[network.network];
+  if (usdc) issuers.add(usdc);
+  const musdc = MUSDC_ISSUER[network.network];
+  if (musdc) issuers.add(musdc);
+  return issuers;
+}
+
+/**
+ * Guards `/tx/submit` against being used as an open relay for arbitrary
+ * Stellar transactions: submitting a signed XDR that has nothing to do with
+ * Meridian would otherwise cost the caller only a rate-limit slot. Every
+ * operation must either invoke a known Meridian/Blend/DeFindex contract or
+ * open a trustline to a known USDC/mUSDC issuer; anything else is rejected
+ * before it reaches the network.
+ */
+export function assertSubmittable(
+  tx: Transaction | FeeBumpTransaction,
+  network: StellarNetwork
+): void {
+  if (!(tx instanceof Transaction)) {
+    throw new Error("Fee-bump transactions are not supported");
+  }
+  if (tx.operations.length === 0) {
+    throw new Error("Transaction has no operations");
+  }
+
+  const contractIds = allowedContractIds(network);
+  const trustlineIssuers = allowedTrustlineIssuers(network);
+
+  for (const op of tx.operations) {
+    if (op.type === "invokeHostFunction") {
+      if (op.func.switch().name !== "hostFunctionTypeInvokeContract") {
+        throw new Error("Transaction invokes a disallowed host function");
+      }
+      const contractId = Address.fromScAddress(
+        op.func.invokeContract().contractAddress()
+      ).toString();
+      if (!contractIds.has(contractId)) {
+        throw new Error("Transaction targets an unrecognised contract");
+      }
+    } else if (op.type === "changeTrust") {
+      if (!(op.line instanceof Asset)) {
+        throw new Error("Transaction establishes an unrecognised trustline");
+      }
+      if (!trustlineIssuers.has(op.line.getIssuer())) {
+        throw new Error(
+          "Transaction establishes a trustline to an unrecognised issuer"
+        );
+      }
+    } else {
+      throw new Error(
+        `Transaction contains a disallowed operation type: ${op.type}`
+      );
+    }
+  }
+}
+
 /**
  * Submit a signed transaction and wait for it to actually land. Rejection at
  * submission time (ERROR / TRY_AGAIN_LATER) throws immediately; PENDING and
@@ -291,6 +375,7 @@ export async function submitTx(
   const passphrase = passphraseFor(network);
   const server = getRpcServer(network.rpcUrl, 8_000);
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
+  assertSubmittable(tx, network);
 
   const sent = await withSorobanTimeout(() => server.sendTransaction(tx));
   if (sent.status === "ERROR") {
