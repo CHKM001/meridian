@@ -392,3 +392,69 @@ export async function submitTx(
   const confirmed = await waitForTransaction(server, sent.hash, opts);
   return { hash: sent.hash, status: "SUCCESS", ledger: confirmed.ledger };
 }
+
+// A faucet grant well above anything a real testnet request would need.
+// Bounds the payment amount as a defence-in-depth check; the operation-type
+// and destination checks below are what actually stop an unrelated transaction.
+const FAUCET_MAX_AMOUNT = 100_000;
+
+/**
+ * Validates a transaction returned by a third-party testnet faucet before it
+ * is handed to the wallet for signing. The faucet is an HTTP endpoint outside
+ * Meridian's control; without this check, a compromised or rotated URL could
+ * return an arbitrary transaction and the caller would sign it blind. Every
+ * operation must either be a `payment` crediting `expectedPublicKey` in the
+ * known USDC asset within a sane amount, or a `changeTrust` to the known
+ * USDC/mUSDC issuer. Anything else throws before the caller ever sees it.
+ */
+export function assertFaucetPayment(
+  faucetXdr: string,
+  passphrase: string,
+  networkKey: string,
+  expectedPublicKey: string
+): Transaction {
+  const tx = TransactionBuilder.fromXDR(faucetXdr, passphrase);
+  if (!(tx instanceof Transaction)) {
+    throw new Error("Faucet response is not a supported transaction type");
+  }
+  if (tx.operations.length === 0) {
+    throw new Error("Faucet response has no operations");
+  }
+
+  const usdcIssuer = USDC_ISSUER[networkKey];
+  const musdcIssuer = MUSDC_ISSUER[networkKey];
+
+  for (const op of tx.operations) {
+    if (op.type === "payment") {
+      if (op.destination !== expectedPublicKey) {
+        throw new Error("Faucet response sends funds to an unexpected address");
+      }
+      if (op.asset.isNative() || op.asset.getIssuer() !== usdcIssuer) {
+        throw new Error("Faucet response funds an unrecognised asset");
+      }
+      if (Number(op.amount) > FAUCET_MAX_AMOUNT) {
+        throw new Error(
+          "Faucet response requests an unexpectedly large amount"
+        );
+      }
+    } else if (op.type === "changeTrust") {
+      if (!(op.line instanceof Asset)) {
+        throw new Error(
+          "Faucet response establishes an unrecognised trustline"
+        );
+      }
+      const issuer = op.line.getIssuer();
+      if (issuer !== usdcIssuer && issuer !== musdcIssuer) {
+        throw new Error(
+          "Faucet response establishes a trustline to an unrecognised issuer"
+        );
+      }
+    } else {
+      throw new Error(
+        `Faucet response contains a disallowed operation type: ${op.type}`
+      );
+    }
+  }
+
+  return tx;
+}

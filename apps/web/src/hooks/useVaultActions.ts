@@ -1,13 +1,17 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { STELLAR_NETWORKS, APP_NETWORK, USDC_ISSUER } from "@meridian/shared";
+import { assertFaucetPayment } from "@meridian/stellar-sdk-helpers";
 import { useWalletStore } from "../store/wallet";
 import { signTransaction } from "../lib/wallet";
 import { api, type ApiPosition } from "../lib/api";
 import { useToastStore } from "../store/toast";
 import { useTranslation } from "react-i18next";
 
+// Configurable so the faucet can be rotated or disabled without a code
+// deploy; falls back to Blend's public testnet faucet.
 const BLEND_FAUCET_URL =
+  import.meta.env.VITE_BLEND_FAUCET_URL ??
   "https://ewqw4hx7oa.execute-api.us-east-1.amazonaws.com/getAssets";
 
 function isMissingTrustline(msg: string) {
@@ -86,6 +90,10 @@ export function useVaultActions() {
 
   // Calls Blend's testnet faucet to fund the wallet with test USDC before the
   // first deposit. Only triggered on testnet when the user has no USDC balance.
+  // The faucet is a third-party endpoint outside Meridian's control, so the
+  // returned transaction is validated before it is ever shown to Freighter:
+  // every operation must credit the caller's own address in a known asset,
+  // never debit it or touch anything else.
   async function fundFromBlendFaucet(): Promise<boolean> {
     if (!publicKey || !passphrase) return false;
     try {
@@ -93,6 +101,7 @@ export function useVaultActions() {
       const res = await fetch(`${BLEND_FAUCET_URL}?userId=${publicKey}`);
       if (!res.ok) throw new Error(`Blend faucet returned ${res.status}`);
       const xdr = await res.text();
+      assertFaucetPayment(xdr, passphrase, network, publicKey);
       await signAndSubmit(xdr);
       push("success", "Testnet wallet funded");
       return true;

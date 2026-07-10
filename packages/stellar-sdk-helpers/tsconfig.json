@@ -3,10 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2020", "DOM"],
     "outDir": "dist",
-    "declaration": true,
-    "paths": {
-      "@meridian/shared": ["../shared/src"]
-    }
+    "rootDir": "src",
+    "declaration": true
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]

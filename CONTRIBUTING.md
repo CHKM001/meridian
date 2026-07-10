@@ -122,13 +122,14 @@ npm install -g pnpm@9
 
    Edit `.env` and set the values you need:
 
-   | Variable            | Required for | Description                                                                                                      |
-   | ------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
-   | `PORT`              | API          | Port for the Fastify API server. Default `3001`.                                                                 |
-   | `ALLOWED_ORIGIN`    | API          | CORS allowed origin. Default `http://localhost:3000`.                                                            |
-   | `STELLAR_NETWORK`   | API, SDK     | Target network: `testnet` or `mainnet`. Default `testnet`.                                                       |
-   | `DEFINDEX_VAULT_ID` | API          | DeFindex vault contract address (C-address). Leave empty to disable DeFindex; only Blend positions are returned. |
-   | `VITE_API_URL`      | Web          | URL the web app uses to reach the API. Default `http://localhost:3001`.                                          |
+   | Variable                | Required for | Description                                                                                                      |
+   | ----------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
+   | `PORT`                  | API          | Port for the Fastify API server. Default `3001`.                                                                 |
+   | `ALLOWED_ORIGIN`        | API          | CORS allowed origin. Default `http://localhost:3000`.                                                            |
+   | `STELLAR_NETWORK`       | API, SDK     | Target network: `testnet` or `mainnet`. Default `testnet`.                                                       |
+   | `DEFINDEX_VAULT_ID`     | API          | DeFindex vault contract address (C-address). Leave empty to disable DeFindex; only Blend positions are returned. |
+   | `VITE_API_URL`          | Web          | URL the web app uses to reach the API. Default `http://localhost:3001`.                                          |
+   | `VITE_BLEND_FAUCET_URL` | Web          | Overrides Blend's testnet faucet endpoint. Leave empty to use the default.                                       |
 
 6. Start the development servers:
 
