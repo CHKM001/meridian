@@ -1,7 +1,10 @@
 import {
   Account,
+  Address,
   Contract,
   TransactionBuilder,
+  Transaction,
+  FeeBumpTransaction,
   Asset,
   Horizon,
   Operation,
@@ -11,8 +14,14 @@ import {
 } from "@stellar/stellar-sdk";
 import type { StellarNetwork } from "./types";
 import { BASE_FEE, passphraseFor, getRpcServer } from "./internal";
-import { withRetry, withRaceTimeout, USDC_ISSUER } from "@meridian/shared";
+import {
+  withRetry,
+  withRaceTimeout,
+  USDC_ISSUER,
+  CONTRACT_ADDRESSES,
+} from "@meridian/shared";
 import { buildHorizonServer } from "./horizon";
+import { KNOWN_POOLS } from "./known-pools";
 
 // The Soroban RPC SDK does not surface an AbortSignal option, so we race each
 // call against a manual timeout rejection. 10 s is enough for testnet under
@@ -276,6 +285,82 @@ function describeSendError(res: rpc.Api.SendTransactionResponse): string {
   }
 }
 
+function allowedContractIds(network: StellarNetwork): Set<string> {
+  const key = network.network === "mainnet" ? "mainnet" : "testnet";
+  const addresses = CONTRACT_ADDRESSES[key];
+  const ids = new Set<string>();
+  const add = (id: string | undefined) => {
+    if (id) ids.add(id);
+  };
+  add(addresses.blend.pool);
+  add(addresses.defindex.factory);
+  add(addresses.defindex.vault);
+  add(addresses.vault);
+  for (const pool of Object.values(KNOWN_POOLS[key])) {
+    add(pool.contractId);
+  }
+  return ids;
+}
+
+function allowedTrustlineIssuers(network: StellarNetwork): Set<string> {
+  const issuers = new Set<string>();
+  const usdc = USDC_ISSUER[network.network];
+  if (usdc) issuers.add(usdc);
+  const musdc = MUSDC_ISSUER[network.network];
+  if (musdc) issuers.add(musdc);
+  return issuers;
+}
+
+/**
+ * Guards `/tx/submit` against being used as an open relay for arbitrary
+ * Stellar transactions: submitting a signed XDR that has nothing to do with
+ * Meridian would otherwise cost the caller only a rate-limit slot. Every
+ * operation must either invoke a known Meridian/Blend/DeFindex contract or
+ * open a trustline to a known USDC/mUSDC issuer; anything else is rejected
+ * before it reaches the network.
+ */
+export function assertSubmittable(
+  tx: Transaction | FeeBumpTransaction,
+  network: StellarNetwork
+): void {
+  if (!(tx instanceof Transaction)) {
+    throw new Error("Fee-bump transactions are not supported");
+  }
+  if (tx.operations.length === 0) {
+    throw new Error("Transaction has no operations");
+  }
+
+  const contractIds = allowedContractIds(network);
+  const trustlineIssuers = allowedTrustlineIssuers(network);
+
+  for (const op of tx.operations) {
+    if (op.type === "invokeHostFunction") {
+      if (op.func.switch().name !== "hostFunctionTypeInvokeContract") {
+        throw new Error("Transaction invokes a disallowed host function");
+      }
+      const contractId = Address.fromScAddress(
+        op.func.invokeContract().contractAddress()
+      ).toString();
+      if (!contractIds.has(contractId)) {
+        throw new Error("Transaction targets an unrecognised contract");
+      }
+    } else if (op.type === "changeTrust") {
+      if (!(op.line instanceof Asset)) {
+        throw new Error("Transaction establishes an unrecognised trustline");
+      }
+      if (!trustlineIssuers.has(op.line.getIssuer())) {
+        throw new Error(
+          "Transaction establishes a trustline to an unrecognised issuer"
+        );
+      }
+    } else {
+      throw new Error(
+        `Transaction contains a disallowed operation type: ${op.type}`
+      );
+    }
+  }
+}
+
 /**
  * Submit a signed transaction and wait for it to actually land. Rejection at
  * submission time (ERROR / TRY_AGAIN_LATER) throws immediately; PENDING and
@@ -290,6 +375,7 @@ export async function submitTx(
   const passphrase = passphraseFor(network);
   const server = getRpcServer(network.rpcUrl, 8_000);
   const tx = TransactionBuilder.fromXDR(signedXdr, passphrase);
+  assertSubmittable(tx, network);
 
   const sent = await withSorobanTimeout(() => server.sendTransaction(tx));
   if (sent.status === "ERROR") {
@@ -305,4 +391,70 @@ export async function submitTx(
   // mempool under this hash, so wait for the ledger to record its outcome.
   const confirmed = await waitForTransaction(server, sent.hash, opts);
   return { hash: sent.hash, status: "SUCCESS", ledger: confirmed.ledger };
+}
+
+// A faucet grant well above anything a real testnet request would need.
+// Bounds the payment amount as a defence-in-depth check; the operation-type
+// and destination checks below are what actually stop an unrelated transaction.
+const FAUCET_MAX_AMOUNT = 100_000;
+
+/**
+ * Validates a transaction returned by a third-party testnet faucet before it
+ * is handed to the wallet for signing. The faucet is an HTTP endpoint outside
+ * Meridian's control; without this check, a compromised or rotated URL could
+ * return an arbitrary transaction and the caller would sign it blind. Every
+ * operation must either be a `payment` crediting `expectedPublicKey` in the
+ * known USDC asset within a sane amount, or a `changeTrust` to the known
+ * USDC/mUSDC issuer. Anything else throws before the caller ever sees it.
+ */
+export function assertFaucetPayment(
+  faucetXdr: string,
+  passphrase: string,
+  networkKey: string,
+  expectedPublicKey: string
+): Transaction {
+  const tx = TransactionBuilder.fromXDR(faucetXdr, passphrase);
+  if (!(tx instanceof Transaction)) {
+    throw new Error("Faucet response is not a supported transaction type");
+  }
+  if (tx.operations.length === 0) {
+    throw new Error("Faucet response has no operations");
+  }
+
+  const usdcIssuer = USDC_ISSUER[networkKey];
+  const musdcIssuer = MUSDC_ISSUER[networkKey];
+
+  for (const op of tx.operations) {
+    if (op.type === "payment") {
+      if (op.destination !== expectedPublicKey) {
+        throw new Error("Faucet response sends funds to an unexpected address");
+      }
+      if (op.asset.isNative() || op.asset.getIssuer() !== usdcIssuer) {
+        throw new Error("Faucet response funds an unrecognised asset");
+      }
+      if (Number(op.amount) > FAUCET_MAX_AMOUNT) {
+        throw new Error(
+          "Faucet response requests an unexpectedly large amount"
+        );
+      }
+    } else if (op.type === "changeTrust") {
+      if (!(op.line instanceof Asset)) {
+        throw new Error(
+          "Faucet response establishes an unrecognised trustline"
+        );
+      }
+      const issuer = op.line.getIssuer();
+      if (issuer !== usdcIssuer && issuer !== musdcIssuer) {
+        throw new Error(
+          "Faucet response establishes a trustline to an unrecognised issuer"
+        );
+      }
+    } else {
+      throw new Error(
+        `Faucet response contains a disallowed operation type: ${op.type}`
+      );
+    }
+  }
+
+  return tx;
 }

@@ -37,7 +37,8 @@
     "assetsAdded": "Actifs du coffre ajoutés au portefeuille",
     "withdrawalFailed": "Échec du retrait",
     "withdrew": "Retiré",
-    "deposited": "Déposé"
+    "deposited": "Déposé",
+    "syncDelayed": "Mise à jour de votre solde en cours..."
   },
 
   "common": {

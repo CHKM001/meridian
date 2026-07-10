@@ -128,7 +128,7 @@ mod tests {
         let usdc_id = env
             .register_stellar_asset_contract_v2(admin.clone())
             .address();
-        StellarAssetClient::new(&env, &usdc_id).mint(&user, &1_000_0000000_i128);
+        StellarAssetClient::new(&env, &usdc_id).mint(&user, &10_000_000_000_i128);
 
         let (vault_a_id, vault_a) = make_vault(&env, &admin, &usdc_id);
         let (vault_b_id, vault_b) = make_vault(&env, &admin, &usdc_id);
@@ -159,7 +159,7 @@ mod tests {
         let usdc_id = env
             .register_stellar_asset_contract_v2(admin.clone())
             .address();
-        StellarAssetClient::new(&env, &usdc_id).mint(&user, &1_000_0000000_i128);
+        StellarAssetClient::new(&env, &usdc_id).mint(&user, &10_000_000_000_i128);
 
         let (vault_a_id, vault_a) = make_vault(&env, &admin, &usdc_id);
         let (vault_b_id, _vault_b) = make_vault(&env, &admin, &usdc_id);

@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, contracttype, symbol_short,
+    contract, contractclient, contracterror, contractimpl, contracttype, symbol_short,
     token::{self, TokenClient},
     Address, Env, Symbol,
 };
@@ -56,6 +56,33 @@ pub enum DataKey {
     Principal(Address),
 }
 
+/// Typed error codes returned by fallible contract entry points. Callers and
+/// off-chain indexers can match on the variant instead of parsing panic
+/// strings, and the numeric discriminant is stable across ABI changes.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum ContractError {
+    /// `initialize` was called on a contract that already has an admin set.
+    AlreadyInitialized = 1,
+    /// A state-mutating call was made before `initialize`.
+    NotInitialized = 2,
+    /// `deposit` was called while `set_paused(true)` is in effect.
+    DepositsPaused = 3,
+    /// `deposit` or `withdraw` was called with a non-positive amount/share count.
+    ZeroAmount = 4,
+    /// The deposited amount rounds down to zero shares at the current price.
+    DepositTooSmall = 5,
+    /// `withdraw` was called while the vault has no shares outstanding.
+    NoSharesOutstanding = 6,
+    /// The caller does not hold enough mUSDC shares to burn.
+    InsufficientShares = 7,
+    /// The shares burned round down to zero USDC at the current price.
+    WithdrawalTooSmall = 8,
+    /// An intermediate arithmetic operation would overflow `i128`.
+    Overflow = 9,
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -73,9 +100,9 @@ impl MeridianVault {
         usdc: Address,
         musdc: Address,
         adapter: Address,
-    ) {
+    ) -> Result<(), ContractError> {
         if env.storage().instance().has(&ADMIN) {
-            panic!("already initialized");
+            return Err(ContractError::AlreadyInitialized);
         }
         admin.require_auth();
         env.storage().instance().set(&ADMIN, &admin);
@@ -84,19 +111,24 @@ impl MeridianVault {
         env.storage().instance().set(&ADAPTER, &adapter);
         env.storage().instance().set(&TOTAL_SH, &0_i128);
         env.storage().instance().set(&ADPT_SH, &0_i128);
+        Ok(())
     }
 
     /// Deposit `amount` USDC into the vault. USDC is forwarded to the yield
     /// adapter, which deploys it to the underlying protocol.
     ///
     /// Returns the number of mUSDC shares minted to the caller.
-    pub fn deposit(env: Env, caller: Address, amount: i128) -> i128 {
+    pub fn deposit(env: Env, caller: Address, amount: i128) -> Result<i128, ContractError> {
         caller.require_auth();
-        assert!(!Self::is_paused(env.clone()), "deposits paused");
-        assert!(amount > 0, "amount must be positive");
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::DepositsPaused);
+        }
+        if amount <= 0 {
+            return Err(ContractError::ZeroAmount);
+        }
 
-        let usdc = Self::usdc(&env);
-        let musdc = Self::musdc(&env);
+        let usdc = Self::usdc(&env)?;
+        let musdc = Self::musdc(&env)?;
         let adapter_addr: Address = env.storage().instance().get(&ADAPTER).unwrap();
         let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
@@ -109,15 +141,21 @@ impl MeridianVault {
         // neutralising the inflation attack on every subsequent deposit.
         let shares_to_mint = amount
             .checked_mul(total_shares + OFFSET)
-            .expect("overflow")
+            .ok_or(ContractError::Overflow)?
             .checked_div(total_assets + OFFSET)
-            .expect("div zero");
+            .ok_or(ContractError::Overflow)?;
 
-        assert!(shares_to_mint > 0, "deposit too small");
+        if shares_to_mint <= 0 {
+            return Err(ContractError::DepositTooSmall);
+        }
 
         // Pull USDC from caller to vault, then forward to adapter.
         TokenClient::new(&env, &usdc).transfer(&caller, &env.current_contract_address(), &amount);
-        TokenClient::new(&env, &usdc).transfer(&env.current_contract_address(), &adapter_addr, &amount);
+        TokenClient::new(&env, &usdc).transfer(
+            &env.current_contract_address(),
+            &adapter_addr,
+            &amount,
+        );
 
         // Adapter deploys USDC to the underlying protocol and returns its own shares.
         let adapter_shares = AdapterClient::new(&env, &adapter_addr).deposit(&amount);
@@ -136,7 +174,9 @@ impl MeridianVault {
         // Track per-address share balance.
         let key = DataKey::Balance(caller.clone());
         let prev: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        env.storage().persistent().set(&key, &(prev + shares_to_mint));
+        env.storage()
+            .persistent()
+            .set(&key, &(prev + shares_to_mint));
 
         // Stamp the entry time on the user's first deposit; top-ups keep the
         // original time.
@@ -149,58 +189,58 @@ impl MeridianVault {
 
         // Accumulate cost basis so the UI can display yield earned.
         let principal_key = DataKey::Principal(caller.clone());
-        let prev_principal: i128 = env
-            .storage()
-            .persistent()
-            .get(&principal_key)
-            .unwrap_or(0);
+        let prev_principal: i128 = env.storage().persistent().get(&principal_key).unwrap_or(0);
         env.storage()
             .persistent()
             .set(&principal_key, &(prev_principal + amount));
 
-        shares_to_mint
+        Ok(shares_to_mint)
     }
 
     /// Withdraw by burning `shares` mUSDC. Returns the USDC amount sent back
     /// to the caller.
-    pub fn withdraw(env: Env, caller: Address, shares: i128) -> i128 {
+    pub fn withdraw(env: Env, caller: Address, shares: i128) -> Result<i128, ContractError> {
         caller.require_auth();
-        assert!(shares > 0, "shares must be positive");
+        if shares <= 0 {
+            return Err(ContractError::ZeroAmount);
+        }
 
-        let usdc = Self::usdc(&env);
-        let musdc = Self::musdc(&env);
+        let usdc = Self::usdc(&env)?;
+        let musdc = Self::musdc(&env)?;
         let adapter_addr: Address = env.storage().instance().get(&ADAPTER).unwrap();
         let total_shares: i128 = env.storage().instance().get(&TOTAL_SH).unwrap_or(0);
         let total_adapter_shares: i128 = env.storage().instance().get(&ADPT_SH).unwrap_or(0);
 
-        assert!(total_shares > 0, "no shares outstanding");
+        if total_shares <= 0 {
+            return Err(ContractError::NoSharesOutstanding);
+        }
 
         // Verify caller holds enough shares.
         let key = DataKey::Balance(caller.clone());
         let caller_shares: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        assert!(caller_shares >= shares, "insufficient shares");
+        if caller_shares < shares {
+            return Err(ContractError::InsufficientShares);
+        }
 
         // Proportional adapter-share burn: caller_shares/total_shares of the
         // total adapter shares are redeemed.
         let adapter_shares_to_burn = shares
             .checked_mul(total_adapter_shares)
-            .expect("overflow")
+            .ok_or(ContractError::Overflow)?
             .checked_div(total_shares)
-            .expect("div zero");
+            .ok_or(ContractError::Overflow)?;
 
         // Adapter redeems protocol shares, delivers USDC to vault, returns amount.
         let usdc_out = AdapterClient::new(&env, &adapter_addr)
             .withdraw(&adapter_shares_to_burn, &env.current_contract_address());
 
-        assert!(usdc_out > 0, "withdrawal too small");
+        if usdc_out <= 0 {
+            return Err(ContractError::WithdrawalTooSmall);
+        }
 
         // Burn mUSDC from caller and send USDC back.
         TokenClient::new(&env, &musdc).burn(&caller, &shares);
-        TokenClient::new(&env, &usdc).transfer(
-            &env.current_contract_address(),
-            &caller,
-            &usdc_out,
-        );
+        TokenClient::new(&env, &usdc).transfer(&env.current_contract_address(), &caller, &usdc_out);
 
         // Update global counters.
         env.storage()
@@ -215,16 +255,12 @@ impl MeridianVault {
 
         // Retire cost basis in proportion to shares burned.
         let principal_key = DataKey::Principal(caller.clone());
-        let principal: i128 = env
-            .storage()
-            .persistent()
-            .get(&principal_key)
-            .unwrap_or(0);
+        let principal: i128 = env.storage().persistent().get(&principal_key).unwrap_or(0);
         let principal_out = principal
             .checked_mul(shares)
-            .expect("overflow")
+            .ok_or(ContractError::Overflow)?
             .checked_div(caller_shares)
-            .expect("div zero");
+            .ok_or(ContractError::Overflow)?;
         env.storage()
             .persistent()
             .set(&principal_key, &(principal - principal_out));
@@ -238,7 +274,7 @@ impl MeridianVault {
             env.storage().persistent().remove(&principal_key);
         }
 
-        usdc_out
+        Ok(usdc_out)
     }
 
     /// Returns the caller's mUSDC share balance.
@@ -323,12 +359,18 @@ impl MeridianVault {
         admin.require_auth();
     }
 
-    fn usdc(env: &Env) -> Address {
-        env.storage().instance().get(&USDC).unwrap()
+    fn usdc(env: &Env) -> Result<Address, ContractError> {
+        env.storage()
+            .instance()
+            .get(&USDC)
+            .ok_or(ContractError::NotInitialized)
     }
 
-    fn musdc(env: &Env) -> Address {
-        env.storage().instance().get(&MUSDC).unwrap()
+    fn musdc(env: &Env) -> Result<Address, ContractError> {
+        env.storage()
+            .instance()
+            .get(&MUSDC)
+            .ok_or(ContractError::NotInitialized)
     }
 }
 
@@ -375,8 +417,7 @@ mod tests {
         pub fn withdraw(env: Env, shares: i128, recipient: Address) -> i128 {
             let usdc: Address = env.storage().instance().get(&MA_USDC).unwrap();
             let total_sh: i128 = env.storage().instance().get(&MA_SH).unwrap_or(0);
-            let balance =
-                TokenClient::new(&env, &usdc).balance(&env.current_contract_address());
+            let balance = TokenClient::new(&env, &usdc).balance(&env.current_contract_address());
 
             let usdc_out = if total_sh > 0 {
                 shares * balance / total_sh
@@ -417,6 +458,7 @@ mod tests {
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
 
+        // Deploy mock USDC and mUSDC tokens.
         let usdc_id = env
             .register_stellar_asset_contract_v2(admin.clone())
             .address();
@@ -432,7 +474,9 @@ mod tests {
         vault.initialize(&admin, &usdc_id, &musdc_id, &adapter_id);
 
         StellarAssetClient::new(&env, &musdc_id).set_admin(&vault_id);
-        StellarAssetClient::new(&env, &usdc_id).mint(&user, &1_000_0000000_i128);
+
+        // Fund the user with 1000 USDC (7 decimal places: 1000 * 10^7).
+        StellarAssetClient::new(&env, &usdc_id).mint(&user, &10_000_000_000_i128);
 
         (env, admin, user, usdc_id, musdc_id, adapter_id, vault)
     }
@@ -464,7 +508,7 @@ mod tests {
         assert_eq!(vault.get_total_shares(), 0);
 
         let user_balance = TokenClient::new(&env, &usdc_id).balance(&user);
-        assert_eq!(user_balance, 1_000_0000000_i128);
+        assert_eq!(user_balance, 10_000_000_000_i128);
     }
 
     #[test]
@@ -536,15 +580,23 @@ mod tests {
         // A second user deposits 100 USDC — should receive fewer shares because
         // the share price has risen.
         let user2 = Address::generate(&env);
-        StellarAssetClient::new(&env, &usdc_id).mint(&user2, &1_000_0000000_i128);
+        StellarAssetClient::new(&env, &usdc_id).mint(&user2, &10_000_000_000_i128);
         let shares2 = vault.deposit(&user2, &amount);
 
-        assert!(shares2 < amount, "second depositor should receive fewer shares");
+        // 100 shares outstanding, vault has 110 USDC.
+        // shares2 = 100 * 100 / 110 ≈ 90 shares.
+        assert!(
+            shares2 < amount,
+            "second depositor should receive fewer shares"
+        );
 
         // First user withdraws — should get more than 100 USDC back.
         let shares1 = vault.get_position(&user);
         let usdc_out = vault.withdraw(&user, &shares1);
-        assert!(usdc_out > amount, "first depositor should profit from yield");
+        assert!(
+            usdc_out > amount,
+            "first depositor should profit from yield"
+        );
     }
 
     #[test]
@@ -620,11 +672,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "deposits paused")]
     fn paused_blocks_deposit() {
         let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
         vault.set_paused(&true);
-        vault.deposit(&user, &100_0000000_i128);
+        let result = vault.try_deposit(&user, &100_0000000_i128);
+        assert_eq!(result, Err(Ok(ContractError::DepositsPaused)));
     }
 
     #[test]
@@ -661,12 +713,41 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "insufficient shares")]
-    fn withdraw_more_than_balance_panics() {
+    fn withdraw_more_than_balance_fails() {
         let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
 
         let amount = 100_0000000_i128;
         vault.deposit(&user, &amount);
-        vault.withdraw(&user, &(amount * 2));
+        let result = vault.try_withdraw(&user, &(amount * 2));
+        assert_eq!(result, Err(Ok(ContractError::InsufficientShares)));
+    }
+
+    #[test]
+    fn reinitializing_fails() {
+        let (_env, admin, _user, usdc_id, musdc_id, adapter_id, vault) = setup();
+        let result = vault.try_initialize(&admin, &usdc_id, &musdc_id, &adapter_id);
+        assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
+    }
+
+    #[test]
+    fn deposit_zero_amount_fails() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let result = vault.try_deposit(&user, &0_i128);
+        assert_eq!(result, Err(Ok(ContractError::ZeroAmount)));
+    }
+
+    #[test]
+    fn withdraw_zero_shares_fails() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        vault.deposit(&user, &100_0000000_i128);
+        let result = vault.try_withdraw(&user, &0_i128);
+        assert_eq!(result, Err(Ok(ContractError::ZeroAmount)));
+    }
+
+    #[test]
+    fn withdraw_with_no_shares_outstanding_fails() {
+        let (_env, _admin, user, _usdc, _musdc, _adapter, vault) = setup();
+        let result = vault.try_withdraw(&user, &1_i128);
+        assert_eq!(result, Err(Ok(ContractError::NoSharesOutstanding)));
     }
 }

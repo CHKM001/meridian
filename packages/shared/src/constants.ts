@@ -69,9 +69,12 @@ export const STELLAR_NETWORKS = {
   },
 };
 
-// Convenience aliases. Both API layers (Vercel + Fastify) target testnet today.
-export const APP_NETWORK = STELLAR_NETWORKS.testnet;
-export const APP_ADDRESSES = CONTRACT_ADDRESSES.testnet;
+const _networkKey = (
+  process.env.STELLAR_NETWORK === "mainnet" ? "mainnet" : "testnet"
+) satisfies keyof typeof STELLAR_NETWORKS;
+
+export const APP_NETWORK = STELLAR_NETWORKS[_networkKey];
+export const APP_ADDRESSES = CONTRACT_ADDRESSES[_networkKey];
 
 export function isDefindexConfigured(): boolean {
   return Boolean(process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSES.defindex.vault);
