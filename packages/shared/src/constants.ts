@@ -79,12 +79,3 @@ export const APP_ADDRESSES = CONTRACT_ADDRESSES[_networkKey];
 export function isDefindexConfigured(): boolean {
   return Boolean(process.env.DEFINDEX_VAULT_ID ?? APP_ADDRESSES.defindex.vault);
 }
-
-/** Build the asset SAC addresses consumed by stellar-sdk-helpers. Protocol
- *  contract addresses are resolved from KNOWN_POOLS inside the SDK by vault ID. */
-export function buildTxAddresses() {
-  return {
-    usdc: APP_ADDRESSES.usdc,
-    eurc: APP_ADDRESSES.eurc,
-  };
-}
