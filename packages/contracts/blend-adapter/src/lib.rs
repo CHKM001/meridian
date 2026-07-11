@@ -19,6 +19,18 @@ const TOTAL_KEY: Symbol = symbol_short!("TOTAL");
 const REQUEST_SUPPLY: u32 = 2;
 const REQUEST_WITHDRAW: u32 = 3;
 
+// Fixed-point base Blend's own contracts use for `Reserve.data.b_rate` (the
+// bToken-to-underlying-asset exchange rate). This is a protocol-wide constant
+// independent of any particular asset's decimals, and must NOT be confused
+// with `Reserve.scalar` (which is `10^decimals` for the underlying asset,
+// e.g. 1e7 for USDC) — the two are unrelated despite superficially similar
+// magnitudes for some assets, and dividing by the wrong one silently
+// corrupts `total_assets()` by orders of magnitude. Verified empirically
+// against real testnet reserve data: `b_tokens * b_rate / RATE_SCALAR`
+// reproduced the deposited amount plus a plausible small yield delta, while
+// dividing by `reserve.scalar` produced a ~100,000x inflated value.
+const RATE_SCALAR: i128 = 1_000_000_000_000;
+
 // ---------------------------------------------------------------------------
 // Blend pool interface types
 // ---------------------------------------------------------------------------
@@ -220,7 +232,7 @@ impl MeridianBlendAdapter {
         let current_value = b_tokens
             .checked_mul(reserve.data.b_rate)
             .expect("overflow")
-            .checked_div(reserve.scalar)
+            .checked_div(RATE_SCALAR)
             .expect("div zero");
 
         env.storage().instance().set(&TOTAL_KEY, &current_value);
@@ -266,6 +278,7 @@ mod tests {
 
     const M_RATE: Symbol = symbol_short!("M_RATE");
     const M_SCALAR: Symbol = symbol_short!("M_SCALAR");
+    const M_REP_SCL: Symbol = symbol_short!("M_REPSCL");
     const M_INDEX: Symbol = symbol_short!("M_INDEX");
     const M_COLLAT: Symbol = symbol_short!("M_COLLAT");
 
@@ -283,6 +296,16 @@ mod tests {
 
         pub fn set_rate(env: Env, rate: i128) {
             env.storage().instance().set(&M_RATE, &rate);
+        }
+
+        // Independently overrides the `scalar` field get_reserve() reports,
+        // decoupled from the internal bToken-conversion ratio used by
+        // submit(). Lets tests prove accrue() no longer depends on this field
+        // at all — regressing to reading it would corrupt total_assets even
+        // though this value has nothing to do with the rate's fixed-point
+        // base, exactly the bug this mock exists to catch.
+        pub fn set_reported_scalar(env: Env, scalar: i128) {
+            env.storage().instance().set(&M_REP_SCL, &scalar);
         }
 
         pub fn submit(
@@ -318,7 +341,12 @@ mod tests {
         }
 
         pub fn get_reserve(env: Env, asset: Address) -> Reserve {
-            let scalar: i128 = env.storage().instance().get(&M_SCALAR).unwrap();
+            let internal_scalar: i128 = env.storage().instance().get(&M_SCALAR).unwrap();
+            let scalar: i128 = env
+                .storage()
+                .instance()
+                .get(&M_REP_SCL)
+                .unwrap_or(internal_scalar);
             let rate: i128 = env.storage().instance().get(&M_RATE).unwrap();
             let index: u32 = env.storage().instance().get(&M_INDEX).unwrap();
             Reserve {
@@ -364,7 +392,12 @@ mod tests {
         }
     }
 
-    const SCALAR: i128 = 1_000_000_000;
+    // Matches RATE_SCALAR (Blend's real b_rate fixed-point base). Using the
+    // same value here for both the mock's initial rate and its internal
+    // bToken-conversion scalar keeps genesis at par (1 bToken = 1 unit) while
+    // making set_rate() bumps interpretable directly against RATE_SCALAR, the
+    // same way accrue() interprets a real reserve's b_rate.
+    const SCALAR: i128 = RATE_SCALAR;
     const RESERVE_INDEX: u32 = 0;
 
     fn setup() -> (
@@ -440,6 +473,36 @@ mod tests {
         assert_eq!(adapter.total_assets(), amount);
 
         adapter.accrue();
+        assert_eq!(adapter.total_assets(), amount + amount / 10);
+    }
+
+    #[test]
+    fn accrue_ignores_reserve_scalar_and_uses_the_real_rate_base() {
+        // Regression test for the bug fixed alongside RATE_SCALAR: accrue()
+        // must divide b_rate by Blend's fixed-point base (RATE_SCALAR),
+        // never by whatever `reserve.scalar` happens to report. Real Blend
+        // reserves report `scalar` as `10^asset_decimals` (e.g. 1e7 for
+        // USDC) — a value that has nothing to do with the rate's own base
+        // and is a completely different order of magnitude from it. Setting
+        // the mock's reported scalar to something wildly different from
+        // RATE_SCALAR here and asserting total_assets is unaffected proves
+        // accrue() genuinely no longer reads that field for this
+        // calculation.
+        let (env, vault, usdc_id, adapter, pool) = setup();
+        let amount = 100_0000000_i128;
+
+        TokenClient::new(&env, &usdc_id).transfer(&vault, &adapter.address, &amount);
+        adapter.deposit(&amount);
+
+        // A USDC-like decimals scalar (1e7), wildly different from
+        // RATE_SCALAR (1e12) — exactly the real-world mismatch that
+        // corrupted total_assets on testnet before this fix.
+        pool.set_reported_scalar(&10_000_000_i128);
+
+        let new_rate = SCALAR + SCALAR / 10;
+        pool.set_rate(&new_rate);
+        adapter.accrue();
+
         assert_eq!(adapter.total_assets(), amount + amount / 10);
     }
 
