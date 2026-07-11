@@ -499,4 +499,43 @@ mod tests {
         assert_eq!(usdc_out, amount + amount / 10);
         assert_eq!(adapter.total_assets(), 0);
     }
+
+    #[test]
+    #[should_panic]
+    fn deposit_requires_vault_auth() {
+        // No mock_all_auths here: vault.require_auth() inside deposit() must
+        // panic since nothing has authorized the stored vault address.
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let vault = Address::generate(&env);
+        let usdc_id = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let pool_id = env.register(MockBlendPool, ());
+        MockBlendPoolClient::new(&env, &pool_id).initialize(&SCALAR, &RESERVE_INDEX);
+        let adapter_id = env.register(MeridianBlendAdapter, ());
+        let adapter = MeridianBlendAdapterClient::new(&env, &adapter_id);
+        adapter.initialize(&vault, &pool_id, &usdc_id);
+
+        adapter.deposit(&100_0000000_i128);
+    }
+
+    #[test]
+    #[should_panic]
+    fn withdraw_requires_vault_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let vault = Address::generate(&env);
+        let usdc_id = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
+        let pool_id = env.register(MockBlendPool, ());
+        MockBlendPoolClient::new(&env, &pool_id).initialize(&SCALAR, &RESERVE_INDEX);
+        let adapter_id = env.register(MeridianBlendAdapter, ());
+        let adapter = MeridianBlendAdapterClient::new(&env, &adapter_id);
+        adapter.initialize(&vault, &pool_id, &usdc_id);
+
+        let recipient = Address::generate(&env);
+        adapter.withdraw(&100_0000000_i128, &recipient);
+    }
 }
