@@ -1,8 +1,9 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, contracttype, symbol_short, vec, Address, Env, Map,
-    Symbol, Val, Vec,
+    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
+    contract, contractclient, contractimpl, contracttype, symbol_short, vec, Address, Env, IntoVal,
+    Map, Symbol, Val, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,24 @@ impl MeridianBlendAdapter {
         let usdc: Address = env.storage().instance().get(&USDC_KEY).unwrap();
 
         let adapter = env.current_contract_address();
+
+        // Blend's pool pulls `amount` USDC from us (the spender) via its own
+        // internal token.transfer call, not one we make directly. Self-auth via
+        // direct invocation only covers calls WE make; it does not extend to
+        // this nested transfer the pool triggers on our behalf several frames
+        // down the stack, so we must pre-authorize it explicitly.
+        env.authorize_as_current_contract(vec![
+            &env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: usdc.clone(),
+                    fn_name: Symbol::new(&env, "transfer"),
+                    args: (adapter.clone(), pool.clone(), amount).into_val(&env),
+                },
+                sub_invocations: Vec::new(&env),
+            }),
+        ]);
+
         BlendPoolClient::new(&env, &pool).submit(
             &adapter,
             &adapter,
