@@ -27,7 +27,8 @@
     "balance": "Solde",
     "position": "Vous n'avez aucune position active à retirer.",
     "shares": "Parts",
-    "waiting": "En attente de signature..."
+    "waiting": "En attente de signature...",
+    "positionsError": "Impossible de charger votre position. Les dépôts et retraits fonctionnent toujours."
   },
 
   "vaultActions": {
@@ -43,6 +44,7 @@
   "common": {
     "connectWallet": "Connecter le portefeuille",
     "connecting": "Connexion...",
-    "installFreighter": "Installer Freighter"
+    "installFreighter": "Installer Freighter",
+    "retry": "Réessayer"
   }
 }
