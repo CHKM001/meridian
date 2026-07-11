@@ -37,15 +37,7 @@ export function VaultPanel() {
   const { connected, publicKey } = useWalletStore();
   const { handleConnect, status: connectStatus } = useWalletConnect();
   const { data: positions = [] } = usePositions(publicKey);
-  const {
-    deposit,
-    withdraw,
-    addTrustline,
-    needsTrustline,
-    isDepositing,
-    isWithdrawing,
-    clearNeedsTrustline,
-  } = useVaultActions();
+  const { deposit, withdraw, isDepositing, isWithdrawing } = useVaultActions();
 
   const [tab, setTab] = useState<Tab>("deposit");
   const [amount, setAmount] = useState("");
@@ -94,7 +86,6 @@ export function VaultPanel() {
   function handleTabChange(next: Tab) {
     setTab(next);
     setAmount("");
-    clearNeedsTrustline();
   }
 
   return (
@@ -273,14 +264,6 @@ export function VaultPanel() {
                 onKeyDown={onAmountKeyDown}
               />
             </div>
-            {needsTrustline && (
-              <button
-                onClick={addTrustline}
-                className="w-full rounded-xl border border-amber-800/70 bg-amber-950/20 hover:border-amber-700 text-amber-400 hover:text-amber-300 text-sm font-medium py-3 transition-colors duration-150"
-              >
-                {t("vaultPanel.addAssets")}
-              </button>
-            )}
             <button
               onClick={handleDeposit}
               disabled={!amount || !bestVault || isDepositing}

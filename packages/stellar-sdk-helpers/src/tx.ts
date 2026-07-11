@@ -18,6 +18,7 @@ import {
   withRetry,
   withRaceTimeout,
   USDC_ISSUER,
+  MUSDC_ISSUER,
   CONTRACT_ADDRESSES,
 } from "@meridian/shared";
 import { buildHorizonServer } from "./horizon";
@@ -45,12 +46,6 @@ const withSorobanTimeout = <T>(
       throw new SorobanTimeoutError(ms);
     throw err;
   });
-
-// mUSDC is the vault's share token. Issuer = the musdc-issuer key used during deployment.
-const MUSDC_ISSUER: Record<string, string> = {
-  testnet: "GDZX7DOZMVEZJSWPDIZCTSCAKW4LBB3UGNWYAG5YTCBL4JPMUPAWWEUD",
-  mainnet: "",
-};
 
 function usdcAsset(network: StellarNetwork): Asset {
   const issuer = USDC_ISSUER[network.network];

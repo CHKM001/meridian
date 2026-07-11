@@ -14,6 +14,14 @@ export const USDC_ISSUER: Record<string, string> = {
   mainnet: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
 };
 
+// mUSDC is the vault's share token. Issuer = the musdc-issuer key used during
+// deployment (see scripts/deploy-testnet.sh's ADMIN, which becomes the mUSDC
+// asset's issuer before admin control is handed to the vault contract).
+export const MUSDC_ISSUER: Record<string, string> = {
+  testnet: "GDZX7DOZMVEZJSWPDIZCTSCAKW4LBB3UGNWYAG5YTCBL4JPMUPAWWEUD",
+  mainnet: "",
+};
+
 export const CONTRACT_ADDRESSES = {
   testnet: {
     blend: {
