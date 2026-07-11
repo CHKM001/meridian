@@ -157,8 +157,13 @@ export async function prepareSorobanTx(
     .setTimeout(300)
     .build();
   const sim = await withSorobanTimeout(() => server.simulateTransaction(tx));
-  if (rpc.Api.isSimulationError(sim))
-    throw new Error(`Simulation failed: ${simErrorMessage(sim.error)}`);
+  if (rpc.Api.isSimulationError(sim)) {
+    const error = new Error(
+      `Simulation failed: ${simErrorMessage(sim.error)}`
+    ) as Error & { cause?: unknown };
+    error.cause = sim.error;
+    throw error;
+  }
   const prepared = rpc.assembleTransaction(tx, sim).build();
   return {
     xdr: prepared.toEnvelope().toXDR("base64"),
