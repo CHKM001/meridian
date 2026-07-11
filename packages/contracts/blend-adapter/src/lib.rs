@@ -213,6 +213,16 @@ impl MeridianBlendAdapter {
     pub fn total_assets(env: Env) -> i128 {
         env.storage().instance().get(&TOTAL_KEY).unwrap_or(0)
     }
+
+    /// Returns the Blend pool this adapter supplies to.
+    pub fn get_pool(env: Env) -> Address {
+        env.storage().instance().get(&POOL_KEY).unwrap()
+    }
+
+    /// Returns "blend", identifying which protocol this adapter wraps.
+    pub fn get_protocol(env: Env) -> Symbol {
+        Symbol::new(&env, "blend")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -380,6 +390,18 @@ mod tests {
 
         assert_eq!(shares, amount);
         assert_eq!(adapter.total_assets(), amount);
+    }
+
+    #[test]
+    fn get_pool_returns_the_configured_pool() {
+        let (_env, _vault, _usdc, adapter, pool) = setup();
+        assert_eq!(adapter.get_pool(), pool.address);
+    }
+
+    #[test]
+    fn get_protocol_returns_blend() {
+        let (env, _vault, _usdc, adapter, _pool) = setup();
+        assert_eq!(adapter.get_protocol(), Symbol::new(&env, "blend"));
     }
 
     #[test]

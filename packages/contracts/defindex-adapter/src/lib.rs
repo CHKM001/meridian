@@ -1,9 +1,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, symbol_short,
-    token::TokenClient,
-    vec, Address, Env, Symbol, Val, Vec,
+    contract, contractclient, contractimpl, symbol_short, token::TokenClient, vec, Address, Env,
+    Symbol, Val, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -74,12 +73,7 @@ impl MeridianDefindexAdapter {
 
         let client = DefindexVaultClient::new(&env, &dfx);
         let shares_before = client.balance(&adapter);
-        let _ = client.deposit(
-            &vec![&env, amount],
-            &vec![&env, 0_i128],
-            &adapter,
-            &true,
-        );
+        let _ = client.deposit(&vec![&env, amount], &vec![&env, 0_i128], &adapter, &true);
         let shares_after = client.balance(&adapter);
 
         shares_after - shares_before
@@ -96,11 +90,8 @@ impl MeridianDefindexAdapter {
         let usdc: Address = env.storage().instance().get(&USDC_KEY).unwrap();
         let adapter = env.current_contract_address();
 
-        let amounts = DefindexVaultClient::new(&env, &dfx).withdraw(
-            &shares,
-            &vec![&env, 0_i128],
-            &adapter,
-        );
+        let amounts =
+            DefindexVaultClient::new(&env, &dfx).withdraw(&shares, &vec![&env, 0_i128], &adapter);
 
         let usdc_out: i128 = amounts.get(0).unwrap_or(0);
         if usdc_out > 0 {
@@ -124,5 +115,56 @@ impl MeridianDefindexAdapter {
 
         let amounts = client.get_asset_amounts_per_shares(&shares);
         amounts.get(0).unwrap_or(0)
+    }
+
+    /// Returns the DeFindex vault this adapter deposits into.
+    pub fn get_pool(env: Env) -> Address {
+        env.storage().instance().get(&DFX_VAULT).unwrap()
+    }
+
+    /// Returns "defindex", identifying which protocol this adapter wraps.
+    pub fn get_protocol(env: Env) -> Symbol {
+        Symbol::new(&env, "defindex")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+//
+// deposit/withdraw/total_assets need a mock DeFindex vault double and are
+// covered separately (#333). These two getters read stored state or return a
+// constant, so they need no cross-contract mock to test.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    fn setup() -> (Env, Address, MeridianDefindexAdapterClient<'static>) {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let vault = Address::generate(&env);
+        let defindex_vault = Address::generate(&env);
+        let usdc = Address::generate(&env);
+
+        let adapter_id = env.register(MeridianDefindexAdapter, ());
+        let adapter = MeridianDefindexAdapterClient::new(&env, &adapter_id);
+        adapter.initialize(&vault, &defindex_vault, &usdc);
+
+        (env, defindex_vault, adapter)
+    }
+
+    #[test]
+    fn get_pool_returns_the_configured_defindex_vault() {
+        let (_env, defindex_vault, adapter) = setup();
+        assert_eq!(adapter.get_pool(), defindex_vault);
+    }
+
+    #[test]
+    fn get_protocol_returns_defindex() {
+        let (env, _defindex_vault, adapter) = setup();
+        assert_eq!(adapter.get_protocol(), Symbol::new(&env, "defindex"));
     }
 }
