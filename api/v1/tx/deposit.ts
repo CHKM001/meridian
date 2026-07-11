@@ -29,11 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.json(result);
   } catch (err) {
     const cause = (err as { cause?: unknown } | undefined)?.cause;
-    console.error(
-      "[tx/deposit] build failed:",
-      err,
-      cause ? { cause } : ""
-    );
+    console.error("[tx/deposit] build failed:", err, cause ? { cause } : "");
     res.status(500).json({
       error: sanitizeTxError(err, "Failed to build deposit transaction"),
     });
