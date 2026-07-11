@@ -63,6 +63,16 @@ describe("simErrorMessage", () => {
     expect(simErrorMessage("")).toBe("Simulation failed (no detail)");
     expect(simErrorMessage("\n\n")).toBe("Simulation failed (no detail)");
   });
+
+  it("surfaces a buried trustline diagnostic instead of the terse first line", () => {
+    const raw =
+      "HostError: Error(Contract, #13)\n\n" +
+      "Event log (newest first):\n" +
+      '   0: [Diagnostic Event] contract:CBQ..., topics:[error, Error(Contract, #13)], data:"escalating error to VM trap from failed host function call: call"\n' +
+      '   1: [Diagnostic Event] contract:CBQ..., topics:[error, Error(Contract, #13)], data:["contract call failed", mint, [GAAA..., 100000000]]\n' +
+      '   2: [Failed Diagnostic Event (not emitted)] contract:CBC..., topics:[error, Error(Contract, #13)], data:["trustline entry is missing for account", GAAA...]\n';
+    expect(simErrorMessage(raw)).toBe("trustline entry is missing for account");
+  });
 });
 
 describe("simulateView RPC timeout", () => {
