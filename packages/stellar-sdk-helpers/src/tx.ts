@@ -48,7 +48,7 @@ const withSorobanTimeout = <T>(
 
 // mUSDC is the vault's share token. Issuer = the musdc-issuer key used during deployment.
 const MUSDC_ISSUER: Record<string, string> = {
-  testnet: "GAZOB5KAE27U7QMGCJLA74TKGECONNND73GL2GIMYBXYNBVG4U5IHBX7",
+  testnet: "GDZX7DOZMVEZJSWPDIZCTSCAKW4LBB3UGNWYAG5YTCBL4JPMUPAWWEUD",
   mainnet: "",
 };
 
