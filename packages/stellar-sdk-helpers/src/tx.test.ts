@@ -7,6 +7,7 @@ import {
   Contract,
   Operation,
   TransactionBuilder,
+  nativeToScVal,
   xdr,
 } from "@stellar/stellar-sdk";
 import {
@@ -113,6 +114,81 @@ describe("simulateView RPC timeout", () => {
 
     const timeouts = setTimeoutSpy.mock.calls.map(([, ms]) => ms);
     expect(timeouts).toContain(10_000);
+  });
+});
+
+describe("simulateView", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const CONTRACT_ID =
+    "CBK5RI4BCA7TLSD2S5Q5TH2LUQAT55GF34OBTWPFUKWZ5O6YXSQDAWOJ";
+  const PASSPHRASE = "Test SDF Network ; September 2015";
+
+  it("simulates a call to the given contract/method/args and decodes the result", async () => {
+    const server = {
+      simulateTransaction: vi.fn(async () => ({
+        transactionData: {},
+        result: { retval: nativeToScVal(42, { type: "i128" }) },
+      })),
+    } as unknown as rpc.Server;
+
+    const arg = nativeToScVal(7, { type: "u32" });
+    const result = await simulateView(
+      server,
+      CONTRACT_ID,
+      PASSPHRASE,
+      "get_total_assets",
+      arg
+    );
+
+    expect(result).toBe(42n);
+    expect(server.simulateTransaction).toHaveBeenCalledTimes(1);
+
+    // Verify the operation actually built targets the right contract/method/args.
+    const [builtTx] = vi.mocked(server.simulateTransaction).mock.calls[0]!;
+    const invocation = builtTx
+      .toEnvelope()
+      .v1()
+      .tx()
+      .operations()[0]!
+      .body()
+      .invokeHostFunctionOp()
+      .hostFunction()
+      .invokeContract();
+    expect(invocation.contractAddress().contractId().toString("hex")).toBe(
+      new Contract(CONTRACT_ID).address().toBuffer().toString("hex")
+    );
+    expect(invocation.functionName().toString()).toBe("get_total_assets");
+    expect(invocation.args()).toEqual([arg]);
+  });
+
+  it("returns null when the simulation succeeds with no return value", async () => {
+    const server = {
+      simulateTransaction: vi.fn(async () => ({
+        transactionData: {},
+        result: undefined,
+      })),
+    } as unknown as rpc.Server;
+
+    const result = await simulateView(
+      server,
+      CONTRACT_ID,
+      PASSPHRASE,
+      "no_return_method"
+    );
+    expect(result).toBeNull();
+  });
+
+  it("throws a sanitized message when simulation fails", async () => {
+    const server = {
+      simulateTransaction: vi.fn(async () => ({
+        error: "HostError: Error(Contract, #1)\nEvent log ...",
+      })),
+    } as unknown as rpc.Server;
+
+    await expect(
+      simulateView(server, CONTRACT_ID, PASSPHRASE, "failing_method")
+    ).rejects.toThrow("HostError: Error(Contract, #1)");
   });
 });
 
