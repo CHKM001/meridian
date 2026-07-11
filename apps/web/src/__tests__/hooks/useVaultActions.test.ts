@@ -138,6 +138,7 @@ describe("useVaultActions — deposit", () => {
       kind: "success",
       message: "Deposited 10 USDC",
     });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["vaults"] });
   });
 
   it("sets needsTrustline when the API signals a missing trustline", async () => {
@@ -251,6 +252,7 @@ describe("useVaultActions — withdraw", () => {
       kind: "success",
       message: "Withdrew 5 USDC",
     });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ["vaults"] });
   });
 
   it("pushes an error toast and returns false when withdraw fails", async () => {

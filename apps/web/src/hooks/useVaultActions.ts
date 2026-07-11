@@ -140,6 +140,9 @@ export function useVaultActions() {
       await signAndSubmit(xdr);
       setNeedsTrustline(false);
       queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
+      // Without this, the vault panel's TVL/APY keep serving their cached
+      // value for up to staleTime (5 min) after a deposit actually lands.
+      queryClient.invalidateQueries({ queryKey: ["vaults"] });
       push("success", `${t("vaultActions.deposited")} ${amount} ${asset}`);
       return true;
     } catch (err) {
@@ -182,6 +185,10 @@ export function useVaultActions() {
       });
 
       await signAndSubmit(xdr);
+
+      // Without this, the vault panel's TVL/APY keep serving their cached
+      // value for up to staleTime (5 min) after a withdrawal actually lands.
+      queryClient.invalidateQueries({ queryKey: ["vaults"] });
 
       // Optimistic update: partial withdrawal scales the position down in-place
       // so the position card stays visible with an approximate remaining balance.
