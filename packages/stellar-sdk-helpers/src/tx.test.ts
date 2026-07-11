@@ -20,6 +20,7 @@ import {
   assertSubmittable,
 } from "./tx";
 import type { StellarNetwork } from "./types";
+import { CONTRACT_ADDRESSES } from "@meridian/shared";
 
 const { SUCCESS, FAILED, NOT_FOUND } = rpc.Api.GetTransactionStatus;
 
@@ -338,8 +339,7 @@ describe("assertSubmittable", () => {
     passphrase: "Test SDF Network ; September 2015",
   };
 
-  const KNOWN_VAULT =
-    "CBK5RI4BCA7TLSD2S5Q5TH2LUQAT55GF34OBTWPFUKWZ5O6YXSQDAWOJ";
+  const KNOWN_VAULT = CONTRACT_ADDRESSES.testnet.vault;
   // Circle's mainnet USDC SAC: a validly-formed contract ID that is not on the
   // testnet allowlist.
   const UNKNOWN_CONTRACT =
