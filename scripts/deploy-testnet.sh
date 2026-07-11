@@ -11,9 +11,19 @@ set -euo pipefail
 
 NETWORK="testnet"
 
-# DEPLOYER must be set in the environment and funded via friendbot. It becomes
-# the admin of the deployed vault.
+# DEPLOYER must be set in the environment and funded via friendbot. It only
+# pays fees and signs setup transactions; it does not need to be kept around
+# afterward. Vault admin control is a separate identity (see ADMIN below).
 : "${DEPLOYER:?DEPLOYER env var required (Stellar secret key)}"
+
+# ADMIN is the address that becomes the deployed vault's permanent admin
+# (set_admin, set_paused, set_adapter). Deliberately independent of DEPLOYER
+# so the deploying key can be thrown away after the run. Defaults to
+# DEPLOYER's own address for local/dev convenience, but should always be
+# explicitly set to a durable key (or multisig) for anything beyond a
+# throwaway testnet run, and MUST be set explicitly ahead of any mainnet
+# deployment. Public key only (G...), not a secret key.
+: "${ADMIN:=}"
 
 # Existing testnet assets/protocol contracts this deployment wires the vault
 # to. Override via env var to point at different addresses.
@@ -31,6 +41,12 @@ WASM_ROUTER="$WASM_DIR/meridian_router.wasm"
 WASM_BLEND_ADAPTER="$WASM_DIR/meridian_blend_adapter.wasm"
 
 DEPLOYER_ADDRESS=$(stellar keys address "$DEPLOYER")
+ADMIN_ADDRESS="${ADMIN:-$DEPLOYER_ADDRESS}"
+if [ -z "$ADMIN" ]; then
+  echo "WARNING: ADMIN not set, defaulting vault admin to the deployer's own address."
+  echo "The deployer key will then also be the permanent admin key. Set ADMIN"
+  echo "explicitly to a separate, durable key to avoid this."
+fi
 
 upload() {
   stellar contract upload --network "$NETWORK" --source "$DEPLOYER" --wasm "$1"
@@ -70,11 +86,11 @@ stellar contract invoke \
   --network "$NETWORK" --source "$DEPLOYER" --id "$BLEND_ADAPTER_ID" \
   -- initialize --vault "$VAULT_ID" --pool "$BLEND_POOL_ID" --usdc "$USDC_ID"
 
-echo "Initializing vault (admin=$DEPLOYER_ADDRESS, usdc=$USDC_ID, musdc=$MUSDC_ID, adapter=$BLEND_ADAPTER_ID)..."
+echo "Initializing vault (admin=$ADMIN_ADDRESS, usdc=$USDC_ID, musdc=$MUSDC_ID, adapter=$BLEND_ADAPTER_ID)..."
 stellar contract invoke \
   --network "$NETWORK" --source "$DEPLOYER" --id "$VAULT_ID" \
   -- initialize \
-  --admin "$DEPLOYER_ADDRESS" --usdc "$USDC_ID" --musdc "$MUSDC_ID" --adapter "$BLEND_ADAPTER_ID"
+  --admin "$ADMIN_ADDRESS" --usdc "$USDC_ID" --musdc "$MUSDC_ID" --adapter "$BLEND_ADAPTER_ID"
 
 echo "Setting the vault as mUSDC's admin so it can mint/burn shares..."
 stellar contract invoke \
