@@ -1,55 +1,41 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { VaultPanel } from "../../components/dashboard/VaultPanel";
 import { useWalletStore } from "../../store/wallet";
+import { useVaults } from "../../hooks/useVaults";
+import { usePositions } from "../../hooks/usePositions";
+import { useVaultActions } from "../../hooks/useVaultActions";
+import { useWalletConnect } from "../../hooks/useWalletConnect";
 
 const refetchPositions = vi.fn();
+const deposit = vi.fn(async () => true);
+const withdraw = vi.fn(async () => true);
+const handleConnect = vi.fn();
 
-vi.mock("../../hooks/useVaults", () => ({
-  useVaults: () => ({
-    data: {
-      vaults: [
-        {
-          id: "meridian-usdc",
-          protocol: "meridian",
-          asset: "USDC",
-          name: "Meridian",
-          label: "USDC Vault",
-          apy: 8,
-          tvl: 10_000,
-          userBalance: 0,
-          riskLevel: "safe",
-        },
-      ],
-      recommendedVaultId: "meridian-usdc",
-    },
-    isLoading: false,
-  }),
-}));
+const VAULT = {
+  id: "meridian-usdc",
+  protocol: "meridian",
+  asset: "USDC",
+  name: "Meridian",
+  label: "USDC Vault",
+  apy: 8,
+  tvl: 10_000,
+  userBalance: 0,
+  riskLevel: "safe" as const,
+};
 
-vi.mock("../../hooks/usePositions", () => ({
-  usePositions: () => ({
-    data: [],
-    isError: true,
-    refetch: refetchPositions,
-  }),
-}));
+const POSITION = {
+  vaultId: "meridian-usdc",
+  shares: 50,
+  deposited: 100,
+  earned: 5,
+  entryTime: 1_700_000_000,
+};
 
-vi.mock("../../hooks/useVaultActions", () => ({
-  useVaultActions: () => ({
-    deposit: vi.fn(async () => true),
-    withdraw: vi.fn(async () => true),
-    isDepositing: false,
-    isWithdrawing: false,
-  }),
-}));
-
-vi.mock("../../hooks/useWalletConnect", () => ({
-  useWalletConnect: () => ({
-    handleConnect: vi.fn(),
-    status: "idle",
-  }),
-}));
+vi.mock("../../hooks/useVaults", () => ({ useVaults: vi.fn() }));
+vi.mock("../../hooks/usePositions", () => ({ usePositions: vi.fn() }));
+vi.mock("../../hooks/useVaultActions", () => ({ useVaultActions: vi.fn() }));
+vi.mock("../../hooks/useWalletConnect", () => ({ useWalletConnect: vi.fn() }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -58,17 +44,46 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
+function mockVaultsLoaded() {
+  vi.mocked(useVaults).mockReturnValue({
+    data: { vaults: [VAULT], recommendedVaultId: "meridian-usdc" },
+    isLoading: false,
+  } as ReturnType<typeof useVaults>);
+}
+
+function mockPositions(overrides: Partial<ReturnType<typeof usePositions>>) {
+  vi.mocked(usePositions).mockReturnValue({
+    data: [],
+    isError: false,
+    refetch: refetchPositions,
+    ...overrides,
+  } as ReturnType<typeof usePositions>);
+}
+
 beforeEach(() => {
-  refetchPositions.mockClear();
+  vi.clearAllMocks();
   useWalletStore.setState({
     publicKey: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
     connected: true,
     network: "testnet",
   });
+  mockVaultsLoaded();
+  mockPositions({ isError: false });
+  vi.mocked(useVaultActions).mockReturnValue({
+    deposit,
+    withdraw,
+    isDepositing: false,
+    isWithdrawing: false,
+  } as unknown as ReturnType<typeof useVaultActions>);
+  vi.mocked(useWalletConnect).mockReturnValue({
+    handleConnect,
+    status: "idle",
+  } as ReturnType<typeof useWalletConnect>);
 });
 
 describe("VaultPanel — position load error", () => {
   it("shows an error message with a retry button when positions fail to load", () => {
+    mockPositions({ isError: true });
     render(<VaultPanel />);
 
     expect(screen.getByText("vaultPanel.positionsError")).toBeDefined();
@@ -78,10 +93,9 @@ describe("VaultPanel — position load error", () => {
   });
 
   it("keeps the deposit tab usable while positions fail to load", () => {
+    mockPositions({ isError: true });
     render(<VaultPanel />);
 
-    // The deposit amount input and button are still present and become
-    // enabled once an amount is entered, unaffected by the positions error.
     const amountInput = screen.getByPlaceholderText("0.00");
     fireEvent.change(amountInput, { target: { value: "10" } });
 
@@ -89,5 +103,76 @@ describe("VaultPanel — position load error", () => {
       .getByText("vaultPanel.deposit")
       .closest("button");
     expect(depositButton?.disabled).toBe(false);
+  });
+
+  it("does not show the error message once positions load successfully", () => {
+    mockPositions({ isError: false, data: [POSITION] });
+    render(<VaultPanel />);
+
+    expect(screen.queryByText("vaultPanel.positionsError")).toBeNull();
+  });
+});
+
+describe("VaultPanel — disconnected", () => {
+  it("prompts to connect instead of showing deposit/withdraw tabs", () => {
+    useWalletStore.setState({ publicKey: null, connected: false });
+    render(<VaultPanel />);
+
+    expect(screen.getByText("vaultPanel.connectUSDC")).toBeDefined();
+    expect(screen.queryByText("vaultPanel.deposit")).toBeNull();
+  });
+
+  it("calls handleConnect when the connect button is clicked", () => {
+    useWalletStore.setState({ publicKey: null, connected: false });
+    render(<VaultPanel />);
+
+    fireEvent.click(screen.getByText("common.connectWallet"));
+    expect(handleConnect).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("VaultPanel — deposit", () => {
+  it("calls deposit with the entered amount and clears the field on success", async () => {
+    render(<VaultPanel />);
+
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "25" },
+    });
+    fireEvent.click(screen.getByText("vaultPanel.deposit"));
+
+    await waitFor(() => {
+      expect(deposit).toHaveBeenCalledWith("25", "meridian-usdc", "USDC");
+    });
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("0.00")).toHaveProperty("value", "");
+    });
+  });
+});
+
+describe("VaultPanel — withdraw", () => {
+  it("shows the position and calls withdraw with the entered shares", async () => {
+    mockPositions({ isError: false, data: [POSITION] });
+    render(<VaultPanel />);
+
+    // The tab switcher renders a raw capitalized label ("Withdraw"), distinct
+    // from the action button below it, which renders the translated
+    // "vaultPanel.withdraw" key.
+    fireEvent.click(screen.getByText("Withdraw"));
+    fireEvent.change(screen.getByPlaceholderText("0.00"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByText("vaultPanel.withdraw"));
+
+    await waitFor(() => {
+      expect(withdraw).toHaveBeenCalledWith("10", "meridian-usdc", "USDC");
+    });
+  });
+
+  it("shows the no-position message when withdrawing with nothing deposited", () => {
+    mockPositions({ isError: false, data: [] });
+    render(<VaultPanel />);
+
+    fireEvent.click(screen.getByText("Withdraw"));
+    expect(screen.getByText("vaultPanel.position")).toBeDefined();
   });
 });
