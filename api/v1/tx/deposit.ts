@@ -2,7 +2,6 @@
 import { buildDepositTx } from "@meridian/stellar-sdk-helpers";
 import {
   APP_NETWORK,
-  buildTxAddresses,
   DepositRequestSchema,
   formatZodError,
   sanitizeTxError,
@@ -25,7 +24,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       vaultId,
       walletAddress,
       amount,
-      buildTxAddresses(),
       APP_NETWORK
     );
     return res.json(result);
