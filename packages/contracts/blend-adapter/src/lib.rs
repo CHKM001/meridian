@@ -1,8 +1,9 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractclient, contractimpl, contracttype, symbol_short, vec, Address, Env, Map,
-    Symbol, Val, Vec,
+    auth::{ContractContext, InvokerContractAuthEntry, SubContractInvocation},
+    contract, contractclient, contractimpl, contracttype, symbol_short, vec, Address, Env, IntoVal,
+    Map, Symbol, Val, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,24 @@ impl MeridianBlendAdapter {
         let usdc: Address = env.storage().instance().get(&USDC_KEY).unwrap();
 
         let adapter = env.current_contract_address();
+
+        // Blend's pool pulls `amount` USDC from us (the spender) via its own
+        // internal token.transfer call, not one we make directly. Self-auth via
+        // direct invocation only covers calls WE make; it does not extend to
+        // this nested transfer the pool triggers on our behalf several frames
+        // down the stack, so we must pre-authorize it explicitly.
+        env.authorize_as_current_contract(vec![
+            &env,
+            InvokerContractAuthEntry::Contract(SubContractInvocation {
+                context: ContractContext {
+                    contract: usdc.clone(),
+                    fn_name: Symbol::new(&env, "transfer"),
+                    args: (adapter.clone(), pool.clone(), amount).into_val(&env),
+                },
+                sub_invocations: Vec::new(&env),
+            }),
+        ]);
+
         BlendPoolClient::new(&env, &pool).submit(
             &adapter,
             &adapter,
@@ -212,6 +231,16 @@ impl MeridianBlendAdapter {
     /// value that includes interest accrued since then.
     pub fn total_assets(env: Env) -> i128 {
         env.storage().instance().get(&TOTAL_KEY).unwrap_or(0)
+    }
+
+    /// Returns the Blend pool this adapter supplies to.
+    pub fn get_pool(env: Env) -> Address {
+        env.storage().instance().get(&POOL_KEY).unwrap()
+    }
+
+    /// Returns "blend", identifying which protocol this adapter wraps.
+    pub fn get_protocol(env: Env) -> Symbol {
+        Symbol::new(&env, "blend")
     }
 }
 
@@ -380,6 +409,18 @@ mod tests {
 
         assert_eq!(shares, amount);
         assert_eq!(adapter.total_assets(), amount);
+    }
+
+    #[test]
+    fn get_pool_returns_the_configured_pool() {
+        let (_env, _vault, _usdc, adapter, pool) = setup();
+        assert_eq!(adapter.get_pool(), pool.address);
+    }
+
+    #[test]
+    fn get_protocol_returns_blend() {
+        let (env, _vault, _usdc, adapter, _pool) = setup();
+        assert_eq!(adapter.get_protocol(), Symbol::new(&env, "blend"));
     }
 
     #[test]
