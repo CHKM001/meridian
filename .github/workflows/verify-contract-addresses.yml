@@ -9,6 +9,7 @@ on:
     paths:
       - "packages/shared/src/constants.ts"
       - "packages/stellar-sdk-helpers/src/known-pools.ts"
+  workflow_dispatch: {}
 
 jobs:
   verify:
