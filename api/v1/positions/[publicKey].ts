@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { resolvePositions } from "@meridian/stellar-sdk-helpers";
-import { APP_NETWORK, isValidStellarAddress } from "@meridian/shared";
+import { handleGetPositions } from "@meridian/api-core";
 import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -8,15 +7,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!(await checkRateLimit(req, res))) return;
   const { publicKey } = req.query as { publicKey: string };
 
-  if (!publicKey || !isValidStellarAddress(publicKey)) {
-    return res.status(400).json({ error: "Invalid public key" });
+  const result = await handleGetPositions(publicKey);
+  if (result.error) {
+    console.error("[positions] error:", result.error);
   }
-
-  try {
-    const positions = await resolvePositions(publicKey, APP_NETWORK);
-    res.json({ positions });
-  } catch (err) {
-    console.error("[positions] error:", err);
-    res.status(503).json({ error: "Failed to read positions" });
-  }
+  res.status(result.status).json(result.body);
 }

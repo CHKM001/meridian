@@ -230,6 +230,22 @@ describe("POST /api/v1/tx/add-trustline", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("returns 500 when the SDK throws", async () => {
+    const app = buildApp();
+    vi.mocked(buildAddTrustlineTx).mockRejectedValue(
+      new Error("trustline build failed")
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/tx/add-trustline",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ walletAddress: WALLET }),
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toHaveProperty("error");
+  });
 });
 
 describe("POST /api/v1/tx/submit", () => {
@@ -264,6 +280,20 @@ describe("POST /api/v1/tx/submit", () => {
       body: JSON.stringify({ xdr: "" }),
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 500 when the SDK throws", async () => {
+    const app = buildApp();
+    vi.mocked(submitTx).mockRejectedValue(new Error("submit failed"));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/tx/submit",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ xdr: "SIGNEDXDR" }),
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toHaveProperty("error");
   });
 });
 
@@ -354,6 +384,18 @@ describe("GET /api/v1/vaults/:vaultId", () => {
       url: "/api/v1/vaults/unknown",
     });
     expect(res.statusCode).toBe(404);
+    expect(res.json()).toHaveProperty("error");
+  });
+
+  it("returns 500 when the SDK throws", async () => {
+    const app = buildApp();
+    vi.mocked(fetchAllVaults).mockRejectedValue(new Error("fetch failed"));
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/v1/vaults/blend-usdc-fixed",
+    });
+    expect(res.statusCode).toBe(500);
     expect(res.json()).toHaveProperty("error");
   });
 });

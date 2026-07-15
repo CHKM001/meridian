@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { fetchAllVaults, KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
+import { KNOWN_POOLS } from "@meridian/stellar-sdk-helpers";
+import { handleGetVaultById } from "@meridian/api-core";
 import { applyCors } from "../../_lib/middleware.js";
-import { APP_NETWORK } from "@meridian/shared";
 
 const CACHE_CONTROL = "public, s-maxage=60, stale-while-revalidate=300";
 const KNOWN_VAULT_IDS = new Set(
@@ -19,15 +19,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!KNOWN_VAULT_IDS.has(vaultId))
     return res.status(404).json({ error: "vault not found", vaultId });
 
-  try {
-    const vaults = await fetchAllVaults(APP_NETWORK.network);
-    const vault = vaults.find((v) => v.id === vaultId);
-    if (!vault)
-      return res.status(404).json({ error: "vault not found", vaultId });
-    res.setHeader("Cache-Control", CACHE_CONTROL);
-    res.json(vault);
-  } catch (err) {
-    console.error("[vaults] fetch error:", err);
-    res.status(500).json({ error: "Failed to fetch vaults" });
+  const result = await handleGetVaultById(vaultId);
+  if (result.error) {
+    console.error("[vaults] fetch error:", result.error);
   }
+  if (result.status === 200) {
+    res.setHeader("Cache-Control", CACHE_CONTROL);
+  }
+  res.status(result.status).json(result.body);
 }
