@@ -7,6 +7,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@meridian/api-core": "workspace:*",
     "@meridian/shared": "workspace:*",
     "@meridian/stellar-sdk-helpers": "workspace:*",
     "@stellar/stellar-sdk": "^14.0.0",

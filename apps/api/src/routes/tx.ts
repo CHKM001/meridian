@@ -1,44 +1,21 @@
 import type { FastifyPluginAsync } from "fastify";
 import {
-  APP_NETWORK,
-  DepositRequestSchema,
-  WithdrawRequestSchema,
-  TrustlineRequestSchema,
-  SubmitRequestSchema,
-  formatZodError,
-  sanitizeTxError,
-} from "@meridian/shared";
-import {
-  buildDepositTx,
-  buildWithdrawTx,
-  buildAddTrustlineTx,
-  submitTx,
-} from "@meridian/stellar-sdk-helpers";
+  handleDepositRequest,
+  handleWithdrawRequest,
+  handleAddTrustlineRequest,
+  handleSubmitRequest,
+} from "@meridian/api-core";
 
 export const txRoute: FastifyPluginAsync = async (app) => {
   app.post(
     "/deposit",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     async (req, reply) => {
-      const parsed = DepositRequestSchema.safeParse(req.body);
-      if (!parsed.success)
-        return reply.code(400).send({ error: formatZodError(parsed.error) });
-
-      try {
-        const { walletAddress, vaultId, amount } = parsed.data;
-        const result = await buildDepositTx(
-          vaultId,
-          walletAddress,
-          amount,
-          APP_NETWORK
-        );
-        reply.send(result);
-      } catch (err) {
-        app.log.error({ err }, "[tx/deposit] build failed");
-        reply.code(500).send({
-          error: sanitizeTxError(err, "Failed to build deposit transaction"),
-        });
+      const result = await handleDepositRequest(req.body);
+      if (result.error) {
+        app.log.error({ err: result.error }, "[tx/deposit] build failed");
       }
+      reply.code(result.status).send(result.body);
     }
   );
 
@@ -46,60 +23,27 @@ export const txRoute: FastifyPluginAsync = async (app) => {
     "/withdraw",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     async (req, reply) => {
-      const parsed = WithdrawRequestSchema.safeParse(req.body);
-      if (!parsed.success)
-        return reply.code(400).send({ error: formatZodError(parsed.error) });
-
-      try {
-        const { walletAddress, vaultId, shares } = parsed.data;
-        const result = await buildWithdrawTx(
-          vaultId,
-          walletAddress,
-          shares,
-          APP_NETWORK
-        );
-        reply.send(result);
-      } catch (err) {
-        app.log.error({ err }, "[tx/withdraw] build failed");
-        reply.code(500).send({
-          error: sanitizeTxError(err, "Failed to build withdraw transaction"),
-        });
+      const result = await handleWithdrawRequest(req.body);
+      if (result.error) {
+        app.log.error({ err: result.error }, "[tx/withdraw] build failed");
       }
+      reply.code(result.status).send(result.body);
     }
   );
 
   app.post("/add-trustline", async (req, reply) => {
-    const parsed = TrustlineRequestSchema.safeParse(req.body);
-    if (!parsed.success)
-      return reply.code(400).send({ error: formatZodError(parsed.error) });
-
-    try {
-      const result = await buildAddTrustlineTx(
-        parsed.data.walletAddress,
-        APP_NETWORK
-      );
-      reply.send(result);
-    } catch (err) {
-      app.log.error({ err }, "[tx/add-trustline] build failed");
-      reply.code(500).send({
-        error: sanitizeTxError(err, "Failed to build trustline transaction"),
-      });
+    const result = await handleAddTrustlineRequest(req.body);
+    if (result.error) {
+      app.log.error({ err: result.error }, "[tx/add-trustline] build failed");
     }
+    reply.code(result.status).send(result.body);
   });
 
   app.post("/submit", async (req, reply) => {
-    const parsed = SubmitRequestSchema.safeParse(req.body);
-    if (!parsed.success)
-      return reply.code(400).send({ error: formatZodError(parsed.error) });
-
-    try {
-      const result = await submitTx(parsed.data.xdr, APP_NETWORK);
-      reply.send(result);
-    } catch (err) {
-      app.log.error({ err }, "[tx/submit] failed");
-      reply
-        .code(500)
-        .send({ error: sanitizeTxError(err, "Failed to submit transaction") });
+    const result = await handleSubmitRequest(req.body);
+    if (result.error) {
+      app.log.error({ err: result.error }, "[tx/submit] failed");
     }
+    reply.code(result.status).send(result.body);
   });
 };

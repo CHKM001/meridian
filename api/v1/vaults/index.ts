@@ -1,10 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import {
-  fetchAllVaults,
-  selectBestVault,
-  isVaultCacheWarm,
-} from "@meridian/stellar-sdk-helpers";
-import { isDefindexConfigured, APP_NETWORK } from "@meridian/shared";
+import { handleGetVaults } from "@meridian/api-core";
+import { APP_NETWORK } from "@meridian/shared";
 import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
 
 // Cache the aggregated vault list at the Vercel CDN. APY/TVL move slowly on
@@ -21,26 +17,18 @@ const TESTNET_CACHE_CONTROL = "no-store";
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
   if (!(await checkRateLimit(req, res))) return;
-  try {
-    const cached = isVaultCacheWarm();
-    const vaults = await fetchAllVaults(APP_NETWORK.network);
-    const best = selectBestVault(vaults, {
-      defindexConfigured: isDefindexConfigured(),
-    });
+
+  const result = await handleGetVaults();
+  if (result.error) {
+    console.error("[vaults] fetch error:", result.error);
+  }
+  if (result.status === 200) {
     res.setHeader(
       "Cache-Control",
       APP_NETWORK.network === "testnet"
         ? TESTNET_CACHE_CONTROL
         : MAINNET_CACHE_CONTROL
     );
-    res.json({
-      vaults,
-      recommendedVaultId: best?.id ?? null,
-      updatedAt: new Date().toISOString(),
-      cached,
-    });
-  } catch (err) {
-    console.error("[vaults] fetch error:", err);
-    res.status(500).json({ error: "Failed to fetch vaults" });
   }
+  res.status(result.status).json(result.body);
 }

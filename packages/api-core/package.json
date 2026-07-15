@@ -1,0 +1,22 @@
+{
+  "name": "@meridian/api-core",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run --passWithNoTests",
+    "coverage": "vitest run --coverage --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@meridian/shared": "workspace:*",
+    "@meridian/stellar-sdk-helpers": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "4.1.9",
+    "vitest": "^4.1.10"
+  }
+}

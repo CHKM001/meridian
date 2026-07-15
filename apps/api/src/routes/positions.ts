@@ -1,21 +1,14 @@
 import type { FastifyPluginAsync } from "fastify";
-import { APP_NETWORK, isValidStellarAddress } from "@meridian/shared";
-import { resolvePositions } from "@meridian/stellar-sdk-helpers";
+import { handleGetPositions } from "@meridian/api-core";
 
 export const positionsRoute: FastifyPluginAsync = async (app) => {
   app.get("/:publicKey", async (req, reply) => {
     const { publicKey } = req.params as { publicKey: string };
 
-    if (!publicKey || !isValidStellarAddress(publicKey)) {
-      return reply.code(400).send({ error: "Invalid public key" });
+    const result = await handleGetPositions(publicKey);
+    if (result.error) {
+      app.log.error(result.error, "[positions] read failed");
     }
-
-    try {
-      const positions = await resolvePositions(publicKey, APP_NETWORK);
-      reply.send({ positions });
-    } catch (err) {
-      app.log.error(err, "[positions] read failed");
-      reply.code(503).send({ error: "Failed to read positions" });
-    }
+    reply.code(result.status).send(result.body);
   });
 };

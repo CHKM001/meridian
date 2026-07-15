@@ -1,11 +1,5 @@
 ﻿import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { buildAddTrustlineTx } from "@meridian/stellar-sdk-helpers";
-import {
-  APP_NETWORK,
-  TrustlineRequestSchema,
-  formatZodError,
-  sanitizeTxError,
-} from "@meridian/shared";
+import { handleAddTrustlineRequest } from "@meridian/api-core";
 import { applyCors, checkRateLimit } from "../../_lib/middleware.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -14,20 +8,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
 
-  const parsed = TrustlineRequestSchema.safeParse(req.body);
-  if (!parsed.success)
-    return res.status(400).json({ error: formatZodError(parsed.error) });
-
-  try {
-    const result = await buildAddTrustlineTx(
-      parsed.data.walletAddress,
-      APP_NETWORK
-    );
-    res.json(result);
-  } catch (err) {
-    console.error("[tx/add-trustline] build failed:", err);
-    res.status(500).json({
-      error: sanitizeTxError(err, "Failed to build trustline transaction"),
-    });
+  const result = await handleAddTrustlineRequest(req.body);
+  if (result.error) {
+    console.error("[tx/add-trustline] build failed:", result.error);
   }
+  res.status(result.status).json(result.body);
 }
